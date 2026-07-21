@@ -64,9 +64,12 @@ struct StreamLayout: Sendable, Equatable {
     }
 
     /// Reads the aggregate's input streams and freezes the lane attribution.
+    /// `leadingStreamsToSkip` = input streams contributed by the output
+    /// sub-device (clock master, listed first); they are neither mic nor tap.
     static func catalog(
         aggregateID: AudioObjectID,
-        tapFormat: AudioStreamBasicDescription
+        tapFormat: AudioStreamBasicDescription,
+        leadingStreamsToSkip: Int = 0
     ) throws -> StreamLayout {
         let streamIDs: [AudioObjectID]
         do {
@@ -87,8 +90,12 @@ struct StreamLayout: Sendable, Equatable {
                 sampleRate: asbd.mSampleRate,
                 isFloat: true)
         }
-        let (micIndex, tapIndex) = try resolve(
-            inputStreams: infos, tapChannels: Int(tapFormat.mChannelsPerFrame))
+        let skip = min(leadingStreamsToSkip, max(0, infos.count - 2))
+        let (relativeMic, relativeTap) = try resolve(
+            inputStreams: Array(infos[skip...]),
+            tapChannels: Int(tapFormat.mChannelsPerFrame))
+        let micIndex = skip + relativeMic
+        let tapIndex = skip + relativeTap
         // Delivery rate is the AGGREGATE's nominal rate, not each stream's
         // advertised virtual format: drift compensation resamples every input
         // onto the aggregate clock. (Observed live: a tap stream advertising

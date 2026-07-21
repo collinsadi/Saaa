@@ -79,6 +79,9 @@ final class LanePipeline {
     private var lastDropped = 0
     /// True until the lane sees its first non-zero sample (permission heuristic).
     private(set) var allZeroSoFar = true
+    /// Diagnostics: read-loop chunks seen / chunks containing signal.
+    private(set) var chunkCount = 0
+    private(set) var nonzeroChunkCount = 0
     /// The format the pipeline is currently configured for.
     private(set) var format: LaneFormat
 
@@ -161,7 +164,9 @@ final class LanePipeline {
             if cycleLevels.peak > levels.peak {
                 levels = cycleLevels
             }
-            if allZeroSoFar && cycleLevels.peak > 0 {
+            chunkCount += 1
+            if cycleLevels.peak > 0 {
+                nonzeroChunkCount += 1
                 allZeroSoFar = false
             }
             let frames = samples / channels

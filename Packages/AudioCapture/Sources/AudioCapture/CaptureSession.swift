@@ -45,6 +45,8 @@ public actor CaptureSession {
     private var running = false
     private var stopping = false
     private var finalizeTask: Task<RecordingResult, Never>?
+    /// Engine setup breadcrumbs, captured before teardown for diagnostics.txt.
+    private var tapEngineDiagnostics: [String]?
 
     /// Non-nil once the session has ended for any reason (auto-stop included).
     public private(set) var result: RecordingResult?
@@ -167,6 +169,7 @@ public actor CaptureSession {
     private struct DrainSummary {
         var duration: TimeInterval = 0
         var failure: CaptureFailure?
+        var laneStats: String = "no pipelines materialized"
     }
 
     private func startDrainTask() {
@@ -265,6 +268,13 @@ public actor CaptureSession {
                 }
             }
             summary.duration = micPipe?.duration ?? 0
+            func stats(_ pipe: LanePipeline?, _ label: String) -> String {
+                guard let pipe else { return "\(label): never materialized" }
+                return "\(label): \(String(format: "%.2f", pipe.duration))s, "
+                    + "\(pipe.nonzeroChunkCount)/\(pipe.chunkCount) chunks with signal, "
+                    + "format \(pipe.format.channels)ch@\(Int(pipe.format.sampleRate))"
+            }
+            summary.laneStats = stats(micPipe, "mic") + "\n" + stats(sysPipe, "sys")
             return summary
         }
     }
@@ -300,6 +310,7 @@ public actor CaptureSession {
         idleDebounceTask?.cancel()
 
         // Stop producers first so the final drain sees every last sample.
+        tapEngineDiagnostics = tapEngine?.diagnostics
         tapEngine?.teardown()
         tapEngine = nil
         if let sckEngine {
@@ -321,6 +332,21 @@ public actor CaptureSession {
         } else {
             finalReason = reason
         }
+
+        // Diagnostics file next to the WAVs — content-free (formats, counts,
+        // stream topology; never audio or transcript data).
+        let report = """
+        Saaa capture diagnostics
+        backend: \(backend)
+        stop reason: \(finalReason)
+        dropped: mic \(micRing.droppedSamples) sys \(sysRing.droppedSamples)
+        \(summary.laneStats)
+        --- engine setup:
+        \((tapEngineDiagnostics ?? ["(none)"]).joined(separator: "\n"))
+        """
+        try? report.write(
+            to: configuration.outputDirectory.appendingPathComponent("diagnostics.txt"),
+            atomically: true, encoding: .utf8)
 
         let recording = RecordingResult(
             micFileURL: configuration.outputDirectory.appendingPathComponent("mic.wav"),

@@ -41,6 +41,13 @@ final class ProcessTapEngine {
     private(set) var layout: StreamLayout?
     /// The mic device the aggregate was built around (pinned for the run).
     private(set) var micDeviceID = AudioObjectID(kAudioObjectUnknown)
+    /// Setup breadcrumbs, persisted to diagnostics.txt with each recording.
+    private(set) var diagnostics: [String] = []
+
+    private func diagnostic(_ line: String) {
+        diagnostics.append(line)
+        Self.log.info("\(line, privacy: .public)")
+    }
 
     init(target: CaptureTarget, micRing: RingBuffer, sysRing: RingBuffer, anchor: HostTimeAnchor) {
         self.target = target
@@ -103,12 +110,27 @@ final class ProcessTapEngine {
             processObjectID = AudioObjectID(kAudioObjectUnknown)
         }
 
-        // Step 3 — resolve and pin the mic device.
+        // Step 3 — resolve and pin the mic device, and the default OUTPUT
+        // device. The output device is essential: a process tap injects audio
+        // on the output device's IO cycle, so the tap-bearing aggregate must
+        // contain that device to tick the tap's clock domain. (Observed live:
+        // a mic-only aggregate produced a tap stream of pure zeros advertising
+        // the output device's 44.1 kHz while the aggregate ran at 48 kHz.)
         guard let mic = preferredMicDeviceID ?? HAL.defaultInputDevice(),
               let micUID = HAL.deviceUID(mic) else {
             throw CaptureError.micDeviceUnavailable
         }
+        guard let output = HAL.defaultOutputDevice(),
+              let outputUID = HAL.deviceUID(output) else {
+            throw CaptureError.aggregateCreationFailed(kAudioHardwareBadDeviceError)
+        }
         micDeviceID = mic
+        // Combo device (e.g. AirPods) serving both directions: one sub-device
+        // entry, no leading input streams to skip.
+        let comboDevice = micUID == outputUID
+        let leadingStreamsToSkip = comboDevice
+            ? 0 : (try? HAL.inputStreams(output).count) ?? 0
+        diagnostic("mic device \(mic) uid=\(micUID); output device \(output) uid=\(outputUID); combo=\(comboDevice) skipLeading=\(leadingStreamsToSkip)")
 
         // Step 4 — tap description: stereo mixdown, private, user keeps
         // hearing the call, process-scoped (follows processes across devices).
@@ -145,17 +167,25 @@ final class ProcessTapEngine {
             throw CaptureError.unsupportedTapFormat
         }
 
-        // Step 7 — the aggregate, fully composed at creation: mic as the only
-        // sub-device and clock master, tap drift-compensated onto its clock.
+        // Step 7 — the aggregate, fully composed at creation: the OUTPUT
+        // device as clock master (drives the tap's injection cycle) plus the
+        // mic drift-compensated onto that clock, tap in the tap list.
         // Deliberately NO kAudioAggregateDeviceTapAutoStartKey — it would
         // block start (silencing the mic lane) until the tapped app plays.
+        var subDevices: [[String: Any]] = [[kAudioSubDeviceUIDKey: outputUID]]
+        if !comboDevice {
+            subDevices.append([
+                kAudioSubDeviceUIDKey: micUID,
+                kAudioSubDeviceDriftCompensationKey: true,
+            ])
+        }
         let composition: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Saaa Capture",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
-            kAudioAggregateDeviceMainSubDeviceKey: micUID,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: micUID]],
+            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+            kAudioAggregateDeviceSubDeviceListKey: subDevices,
             kAudioAggregateDeviceTapListKey: [[
                 kAudioSubTapUIDKey: tapUID,
                 kAudioSubTapDriftCompensationKey: true,
@@ -168,9 +198,21 @@ final class ProcessTapEngine {
         }
         aggregateID = newAggregateID
 
+        diagnostic("tap \(tapID) uid=\(tapUID) fmt=\(tapFormat.mSampleRate)Hz \(tapFormat.mChannelsPerFrame)ch")
+        diagnostic("aggregate \(aggregateID) nominalRate=\(HAL.nominalSampleRate(aggregateID) ?? 0)")
+        if let streams = try? HAL.inputStreams(aggregateID) {
+            for (index, stream) in streams.enumerated() {
+                let asbd = HAL.streamVirtualFormat(stream)
+                diagnostic("input stream[\(index)] id=\(stream) \(asbd?.mSampleRate ?? 0)Hz \(asbd?.mChannelsPerFrame ?? 0)ch")
+            }
+        }
+
         // Step 8 — freeze the buffer-lane attribution; never guess.
-        let frozenLayout = try StreamLayout.catalog(aggregateID: aggregateID, tapFormat: tapFormat)
+        let frozenLayout = try StreamLayout.catalog(
+            aggregateID: aggregateID, tapFormat: tapFormat,
+            leadingStreamsToSkip: leadingStreamsToSkip)
         layout = frozenLayout
+        diagnostic("layout mic[\(frozenLayout.micBufferIndex)] \(frozenLayout.micChannels)ch@\(frozenLayout.micSampleRate) tap[\(frozenLayout.tapBufferIndex)] \(frozenLayout.tapChannels)ch@\(frozenLayout.tapSampleRate)")
 
         // Step 10 — property listeners (step 9's allocations live in the session).
         registerListeners(onSignal: onSignal)

@@ -97,6 +97,16 @@ enum HAL {
         return deviceID
     }
 
+    /// The current default output device, or `nil` if none exists.
+    static func defaultOutputDevice() -> AudioObjectID? {
+        var deviceID = AudioObjectID(kAudioObjectUnknown)
+        let status = read(
+            AudioObjectID(kAudioObjectSystemObject),
+            kAudioHardwarePropertyDefaultOutputDevice, into: &deviceID)
+        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
+        return deviceID
+    }
+
     /// A device's persistent UID.
     static func deviceUID(_ deviceID: AudioObjectID) -> String? {
         readString(deviceID, kAudioDevicePropertyDeviceUID)
