@@ -1,6 +1,7 @@
 import AppKit
 import AudioCapture
 import CalendarContext
+import ClaudeBridge
 import Core
 import Foundation
 import Matching
@@ -34,6 +35,10 @@ public final class CallController {
 
     /// Prefilter shortlist of the last processed call (Phase-6 input).
     public private(set) var lastMatches: [ScoredCandidate] = []
+    /// Claude Code's judgment for the last processed call, if it ran.
+    public private(set) var lastJudgment: CallJudgment?
+
+    private let claudeCLI = ClaudeCLI()
 
     private var captureSession: CaptureSession?
     private var eventTask: Task<Void, Never>?
@@ -241,6 +246,33 @@ public final class CallController {
             try Self.write(transcript, result: result, to: directory)
             try Self.writeMatching(
                 matches: lastMatches, calendar: callCalendarContext, to: directory)
+
+            // Stage 2: Claude Code's read-only judgment over the shortlist.
+            // Failures degrade gracefully — the transcript always survives.
+            lastJudgment = nil
+            if !lastMatches.isEmpty, !transcript.segments.isEmpty {
+                processingDetail = "Asking Claude Code…"
+                do {
+                    let judgment = try await MatchingJudge.judge(
+                        cli: claudeCLI,
+                        transcript: transcript,
+                        shortlist: lastMatches.map {
+                            (path: $0.candidate.path.path,
+                             name: $0.candidate.name,
+                             score: $0.score)
+                        },
+                        calendar: callCalendarContext)
+                    lastJudgment = judgment
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    try encoder.encode(judgment)
+                        .write(to: directory.appendingPathComponent("judgment.json"))
+                } catch ClaudeBridgeError.claudeNotInstalled {
+                    Self.log.info("claude not installed — keeping transcript unfiled")
+                } catch {
+                    Self.log.error("judgment failed: \(String(describing: error), privacy: .public)")
+                }
+            }
             processingDetail = ""
             if apply(.transcriptReady(transcript)) {
                 onReview?(transcript)
