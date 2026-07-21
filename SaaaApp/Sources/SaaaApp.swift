@@ -21,6 +21,34 @@ import Transcription
 struct SaaaApp: App {
     @State private var harness = CaptureHarness()
 
+    init() {
+        // Headless capture self-test (dev tooling): `open Saaa.app --args
+        // --selftest` records 5 s of all system audio, writes the usual
+        // WAVs + diagnostics.txt, then quits.
+        if CommandLine.arguments.contains("--tap-only") {
+            AudioCaptureModule.debugTapOnlyComposition = true
+        }
+        if CommandLine.arguments.contains("--selftest") {
+            let harness = harness
+            let forceSCK = CommandLine.arguments.contains("--sck")
+            Task { @MainActor in
+                if forceSCK { harness.forcedBackend = .screenCaptureKit }
+                // SCK needs an app target; tap path exercises the global tap.
+                let target: CaptureHarness.Target
+                if forceSCK, let running = harness.availableTargets().first(where: { $0.id > 0 }) {
+                    target = running
+                } else {
+                    target = .allSystemAudio
+                }
+                harness.record(target: target, seconds: 5)
+                while !harness.isSettled {
+                    try? await Task.sleep(for: .milliseconds(300))
+                }
+                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra("Saaa", systemImage: "waveform") {
             HarnessMenu(harness: harness)
@@ -41,6 +69,14 @@ final class CaptureHarness {
     }
 
     private(set) var state: State = .idle
+
+    /// True once a run has finished or failed (selftest exit condition).
+    var isSettled: Bool {
+        switch state {
+        case .finished, .failed: true
+        case .idle, .recording: false
+        }
+    }
 
     struct Target: Identifiable {
         let id: pid_t // -1 = all system audio
@@ -66,6 +102,9 @@ final class CaptureHarness {
         }
     }
 
+    /// Debug: force a backend for the next recordings (harness `--sck`).
+    var forcedBackend: CaptureBackend?
+
     func record(target: Target, seconds: Int = 10) {
         guard case .idle = state else { return }
         state = .recording(target: target.name, remaining: seconds)
@@ -84,7 +123,8 @@ final class CaptureHarness {
 
         let session = CaptureSession(
             configuration: CaptureConfiguration(
-                target: target.captureTarget, outputDirectory: directory))
+                target: target.captureTarget, outputDirectory: directory,
+                preferredBackend: forcedBackend))
         let log = Logger(subsystem: "dev.collinsadi.saaa", category: "Harness")
         let monitor = Task {
             for await event in session.events {

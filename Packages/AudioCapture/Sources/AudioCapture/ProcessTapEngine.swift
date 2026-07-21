@@ -44,6 +44,11 @@ final class ProcessTapEngine {
     /// Setup breadcrumbs, persisted to diagnostics.txt with each recording.
     private(set) var diagnostics: [String] = []
 
+    /// Debug: build the aggregate with ONLY the output device + tap (Apple's
+    /// sample shape, no mic sub-device); both lanes then record the tap.
+    /// Set via the harness `--tap-only` flag to isolate composition problems.
+    static var debugTapOnly: Bool { AudioCaptureModule.debugTapOnlyComposition }
+
     private func diagnostic(_ line: String) {
         diagnostics.append(line)
         Self.log.info("\(line, privacy: .public)")
@@ -170,14 +175,19 @@ final class ProcessTapEngine {
         // Step 7 — the aggregate, fully composed at creation: the OUTPUT
         // device as clock master (drives the tap's injection cycle) plus the
         // mic drift-compensated onto that clock, tap in the tap list.
-        // Deliberately NO kAudioAggregateDeviceTapAutoStartKey — it would
-        // block start (silencing the mic lane) until the tapped app plays.
+        // TapAutoStart MUST be true (Apple sample + AudioCap): without it the
+        // aggregate never engages its taps — the tap stream exists but
+        // delivers zeros forever, and the system-audio TCC prompt never
+        // fires (verified live on this machine).
         var subDevices: [[String: Any]] = [[kAudioSubDeviceUIDKey: outputUID]]
-        if !comboDevice {
+        if !comboDevice && !Self.debugTapOnly {
             subDevices.append([
                 kAudioSubDeviceUIDKey: micUID,
                 kAudioSubDeviceDriftCompensationKey: true,
             ])
+        }
+        if Self.debugTapOnly {
+            diagnostic("DEBUG tap-only composition (no mic sub-device)")
         }
         let composition: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Saaa Capture",
@@ -186,6 +196,7 @@ final class ProcessTapEngine {
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceSubDeviceListKey: subDevices,
+            kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceTapListKey: [[
                 kAudioSubTapUIDKey: tapUID,
                 kAudioSubTapDriftCompensationKey: true,
@@ -208,9 +219,21 @@ final class ProcessTapEngine {
         }
 
         // Step 8 — freeze the buffer-lane attribution; never guess.
-        let frozenLayout = try StreamLayout.catalog(
-            aggregateID: aggregateID, tapFormat: tapFormat,
-            leadingStreamsToSkip: leadingStreamsToSkip)
+        let frozenLayout: StreamLayout
+        if Self.debugTapOnly {
+            let streams = (try? HAL.inputStreams(aggregateID)) ?? []
+            guard let last = streams.indices.last else { throw CaptureError.layoutAmbiguous }
+            let channels = Int(HAL.streamVirtualFormat(streams[last])?.mChannelsPerFrame ?? 2)
+            let rate = HAL.nominalSampleRate(aggregateID) ?? tapFormat.mSampleRate
+            frozenLayout = StreamLayout(
+                micBufferIndex: last, tapBufferIndex: last,
+                micChannels: channels, tapChannels: channels,
+                micSampleRate: rate, tapSampleRate: rate)
+        } else {
+            frozenLayout = try StreamLayout.catalog(
+                aggregateID: aggregateID, tapFormat: tapFormat,
+                leadingStreamsToSkip: leadingStreamsToSkip)
+        }
         layout = frozenLayout
         diagnostic("layout mic[\(frozenLayout.micBufferIndex)] \(frozenLayout.micChannels)ch@\(frozenLayout.micSampleRate) tap[\(frozenLayout.tapBufferIndex)] \(frozenLayout.tapChannels)ch@\(frozenLayout.tapSampleRate)")
 
