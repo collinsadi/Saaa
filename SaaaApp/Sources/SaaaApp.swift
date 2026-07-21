@@ -76,9 +76,7 @@ struct SaaaApp: App {
         let controller = controller
         let presenter = reviewPresenter
         controller.onReview = { transcript in
-            presenter.show(transcript, sessionDirectory: controller.sessionDirectory) {
-                controller.closeReview()
-            }
+            presenter.show(controller: controller, transcript: transcript)
         }
         hotkey = HotkeyMonitor { controller.toggle() }
     }

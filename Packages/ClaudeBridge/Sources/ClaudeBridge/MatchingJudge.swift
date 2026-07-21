@@ -16,6 +16,13 @@ public struct CallJudgment: Sendable, Codable, Equatable {
             case projectPath = "project_path"
             case alternates, confidence, reasoning
         }
+
+        public init(projectPath: String?, alternates: [String], confidence: Double, reasoning: String) {
+            self.projectPath = projectPath
+            self.alternates = alternates
+            self.confidence = confidence
+            self.reasoning = reasoning
+        }
     }
 
     public struct ExtractedItem: Sendable, Codable, Equatable {
@@ -31,6 +38,13 @@ public struct CallJudgment: Sendable, Codable, Equatable {
             case kind, title, body
             case suggestedFile = "suggested_file"
         }
+
+        public init(kind: String, title: String, body: String, suggestedFile: String?) {
+            self.kind = kind
+            self.title = title
+            self.body = body
+            self.suggestedFile = suggestedFile
+        }
     }
 
     public let match: Match
@@ -41,6 +55,12 @@ public struct CallJudgment: Sendable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case match, extracted
         case callType = "call_type"
+    }
+
+    public init(match: Match, callType: String, extracted: [ExtractedItem]) {
+        self.match = match
+        self.callType = callType
+        self.extracted = extracted
     }
 }
 

@@ -3,6 +3,7 @@ import AudioCapture
 import CalendarContext
 import ClaudeBridge
 import Core
+import Extraction
 import Foundation
 import Matching
 import Observation
@@ -91,6 +92,31 @@ public final class CallController {
         if apply(.reviewClosed) {
             apply(.reset)
         }
+    }
+
+    /// The confirmed write-back: routes the approved extracted items into the
+    /// matched project, additively and conflict-safe. Returns per-file
+    /// outcomes for the review surface. The ONLY path that touches a repo.
+    public func applyWriteBack(approvedItems: [Int]) -> [WriteOutcome] {
+        guard let judgment = lastJudgment,
+              let projectPath = judgment.match.projectPath else { return [] }
+        let changes = WriteBackRouter.plan(judgment: judgment, approvedItems: approvedItems)
+        let engine = WriteBackEngine(projectRoot: URL(filePath: projectPath))
+        let outcomes = engine.apply(changes.map { engine.preview($0) })
+        // Session record of what was (or wasn't) written.
+        if let directory = sessionDirectory {
+            let report = outcomes.map { outcome -> String in
+                switch outcome {
+                case .applied(let file): "applied: \(file)"
+                case .conflict(let file, let diff): "conflict: \(file)\n\(diff)"
+                case .failed(let file, let reason): "failed: \(file) — \(reason)"
+                }
+            }.joined(separator: "\n")
+            try? report.write(
+                to: directory.appendingPathComponent("writeback.log"),
+                atomically: true, encoding: .utf8)
+        }
+        return outcomes
     }
 
     // MARK: - Recording
