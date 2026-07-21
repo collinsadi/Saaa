@@ -25,6 +25,7 @@ struct SaaaApp: App {
     @State private var hotkey: HotkeyMonitor
     @State private var island: IslandController
     @State private var onboardingPresenter = OnboardingPresenter()
+    @State private var historyPresenter = HistoryPresenter()
 
     init() {
         let controller = CallController()
@@ -81,12 +82,15 @@ struct SaaaApp: App {
 
     var body: some Scene {
         MenuBarExtra("Saaa", systemImage: menuBarIcon) {
-            SaaaMenu(controller: controller, harness: harness) {
-                let island = island
-                onboardingPresenter.show {
-                    island.showWelcome()
-                }
-            }
+            SaaaMenu(
+                controller: controller, harness: harness,
+                onSetup: {
+                    let island = island
+                    onboardingPresenter.show {
+                        island.showWelcome()
+                    }
+                },
+                onHistory: { historyPresenter.show() })
         }
         Settings {
             SaaaSettingsView(controller: controller)
@@ -112,6 +116,7 @@ struct SaaaMenu: View {
     let controller: CallController
     let harness: CaptureHarness
     let onSetup: () -> Void
+    let onHistory: () -> Void
 
     var body: some View {
         statusSection
@@ -120,6 +125,10 @@ struct SaaaMenu: View {
             HarnessMenu(harness: harness)
         }
         Divider()
+        Button("History…") {
+            onHistory()
+        }
+        .keyboardShortcut("y")
         SettingsLink {
             Text("Settings…")
         }

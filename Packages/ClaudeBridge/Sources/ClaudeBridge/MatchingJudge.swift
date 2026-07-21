@@ -64,6 +64,18 @@ public struct CallJudgment: Sendable, Codable, Equatable {
     }
 }
 
+extension CallJudgment {
+    /// Below this confidence a match is PRESENTED AS UNFILED — the suggestion
+    /// is shown as an FYI but no write-back is offered (architecture: low
+    /// confidence must never lead to a wrong write).
+    public static let lowConfidenceThreshold = 0.45
+
+    /// Whether the judgment is confident enough to offer filing + write-back.
+    public var isConfident: Bool {
+        match.projectPath != nil && match.confidence >= Self.lowConfidenceThreshold
+    }
+}
+
 /// Builds and runs the READ-ONLY matching judgment over the prefilter
 /// shortlist. The write-back run (edit-enabled, Phase 7) is a separate,
 /// explicitly confirmed call.

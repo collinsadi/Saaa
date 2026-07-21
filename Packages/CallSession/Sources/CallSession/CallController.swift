@@ -123,7 +123,7 @@ public final class CallController {
     /// matched project, additively and conflict-safe. Returns per-file
     /// outcomes for the review surface. The ONLY path that touches a repo.
     public func applyWriteBack(approvedItems: [Int]) -> [WriteOutcome] {
-        guard let judgment = lastJudgment,
+        guard let judgment = lastJudgment, judgment.isConfident,
               let projectPath = judgment.match.projectPath else { return [] }
         let changes = WriteBackRouter.plan(judgment: judgment, approvedItems: approvedItems)
         let engine = WriteBackEngine(projectRoot: URL(filePath: projectPath))

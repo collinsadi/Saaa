@@ -124,7 +124,8 @@ private struct ReviewView: View {
 
     private var matchCard: some View {
         card {
-            if let judgment = controller.lastJudgment, let path = judgment.match.projectPath {
+            if let judgment = controller.lastJudgment,
+               let path = judgment.match.projectPath, judgment.isConfident {
                 Text("Proj · Matched").engravedLabelStyle().foregroundStyle(saaa.textTertiary)
                 Text(URL(filePath: path).lastPathComponent)
                     .font(SaaaFont.title2)
@@ -143,6 +144,14 @@ private struct ReviewView: View {
                 Text("No confident match")
                     .font(SaaaFont.title2)
                     .foregroundStyle(saaa.textPrimary)
+                if let judgment = controller.lastJudgment,
+                   let path = judgment.match.projectPath {
+                    // A low-confidence guess is shown as an FYI only.
+                    Text("Closest guess: \(URL(filePath: path).lastPathComponent) at \(Int(judgment.match.confidence * 100))% — below the filing bar")
+                        .font(SaaaFont.callout)
+                        .foregroundStyle(saaa.textSecondary)
+                    confidenceRow(judgment.match.confidence)
+                }
                 Text("The transcript is kept (sealed); nothing will be written to any repo.")
                     .font(SaaaFont.callout)
                     .foregroundStyle(saaa.textSecondary)
@@ -237,7 +246,7 @@ private struct ReviewView: View {
         HStack(spacing: Space.md) {
             if outcomes == nil,
                let judgment = controller.lastJudgment,
-               judgment.match.projectPath != nil,
+               judgment.isConfident,
                !judgment.extracted.isEmpty {
                 Button {
                     outcomes = controller.applyWriteBack(approvedItems: approved.sorted())

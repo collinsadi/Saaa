@@ -361,7 +361,7 @@ struct IslandRootView: View {
                 .frame(height: Size.controlMd)
                 .background(Capsule().fill(saaa.tideFill))
             }
-            if let judgment = controller.lastJudgment, judgment.match.projectPath != nil {
+            if let judgment = controller.lastJudgment, judgment.isConfident {
                 Text("confidence \(Int(judgment.match.confidence * 100))% · \(judgment.callType.replacingOccurrences(of: "_", with: " "))")
                     .font(SaaaFont.monoCaption)
                     .foregroundStyle(saaa.textTertiary)
@@ -382,10 +382,11 @@ struct IslandRootView: View {
     }
 
     private var peekTitle: String {
-        if let path = controller.lastJudgment?.match.projectPath {
+        if let judgment = controller.lastJudgment, judgment.isConfident,
+           let path = judgment.match.projectPath {
             return "Filed to \(URL(filePath: path).lastPathComponent)"
         }
-        return "Transcript ready"
+        return "Transcript ready — unfiled"
     }
 
     /// Quiet afterglow: a single tide dot below the notch after peek retracts.
