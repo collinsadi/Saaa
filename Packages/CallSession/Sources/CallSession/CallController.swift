@@ -7,6 +7,7 @@ import Extraction
 import Foundation
 import Matching
 import Observation
+import Persistence
 import Transcription
 import os
 
@@ -40,6 +41,17 @@ public final class CallController {
     public private(set) var lastJudgment: CallJudgment?
 
     private let claudeCLI = ClaudeCLI()
+
+    /// Audio retention (recommended default: delete WAVs once transcribed).
+    public var retention = RetentionPolicy()
+    private let encryption = try? EncryptionService()
+    @ObservationIgnored private var storeCache: SessionStore?
+    private var store: SessionStore? {
+        if storeCache == nil { storeCache = try? SessionStore() }
+        return storeCache
+    }
+    private var currentRecordID: UUID?
+    private var sessionStartedAt: Date = .now
 
     private var captureSession: CaptureSession?
     private var eventTask: Task<Void, Never>?
@@ -91,6 +103,10 @@ public final class CallController {
     public func closeReview() {
         if apply(.reviewClosed) {
             apply(.reset)
+            if let currentRecordID {
+                let store = store
+                Task { try? await store?.updateStatus(id: currentRecordID, status: "done") }
+            }
         }
     }
 
@@ -103,18 +119,20 @@ public final class CallController {
         let changes = WriteBackRouter.plan(judgment: judgment, approvedItems: approvedItems)
         let engine = WriteBackEngine(projectRoot: URL(filePath: projectPath))
         let outcomes = engine.apply(changes.map { engine.preview($0) })
-        // Session record of what was (or wasn't) written.
-        if let directory = sessionDirectory {
+        // Record the outcomes inside the encrypted session archive.
+        if let directory = sessionDirectory, let encryption {
+            let archiveURL = directory.appendingPathComponent("session.enc")
             let report = outcomes.map { outcome -> String in
                 switch outcome {
                 case .applied(let file): "applied: \(file)"
                 case .conflict(let file, let diff): "conflict: \(file)\n\(diff)"
                 case .failed(let file, let reason): "failed: \(file) — \(reason)"
                 }
-            }.joined(separator: "\n")
-            try? report.write(
-                to: directory.appendingPathComponent("writeback.log"),
-                atomically: true, encoding: .utf8)
+            }
+            if var archive = try? encryption.decrypt(SessionArchive.self, from: archiveURL) {
+                archive.notes += report
+                try? encryption.encrypt(archive, to: archiveURL)
+            }
         }
         return outcomes
     }
@@ -149,6 +167,7 @@ public final class CallController {
 
         do {
             try await session.start()
+            sessionStartedAt = .now
             _ = apply(.captureStarted)
             // Snapshot the overlapping calendar event off the hot path —
             // first use shows the calendar permission dialog in context.
@@ -269,17 +288,13 @@ public final class CallController {
             lastMatches = Prefilter.rank(
                 candidates: candidates, transcript: transcript,
                 calendar: callCalendarContext)
-            try Self.write(transcript, result: result, to: directory)
-            try Self.writeMatching(
-                matches: lastMatches, calendar: callCalendarContext, to: directory)
-
             // Stage 2: Claude Code's read-only judgment over the shortlist.
             // Failures degrade gracefully — the transcript always survives.
             lastJudgment = nil
             if !lastMatches.isEmpty, !transcript.segments.isEmpty {
                 processingDetail = "Asking Claude Code…"
                 do {
-                    let judgment = try await MatchingJudge.judge(
+                    lastJudgment = try await MatchingJudge.judge(
                         cli: claudeCLI,
                         transcript: transcript,
                         shortlist: lastMatches.map {
@@ -288,17 +303,48 @@ public final class CallController {
                              score: $0.score)
                         },
                         calendar: callCalendarContext)
-                    lastJudgment = judgment
-                    let encoder = JSONEncoder()
-                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                    try encoder.encode(judgment)
-                        .write(to: directory.appendingPathComponent("judgment.json"))
                 } catch ClaudeBridgeError.claudeNotInstalled {
                     Self.log.info("claude not installed — keeping transcript unfiled")
                 } catch {
                     Self.log.error("judgment failed: \(String(describing: error), privacy: .public)")
                 }
             }
+
+            // Phase 8 — content is sealed into one encrypted archive; raw
+            // audio is deleted per the retention default (text survives,
+            // audio does not). Only content-free metadata enters the store.
+            processingDetail = "Securing…"
+            let archive = SessionArchive(
+                transcript: transcript,
+                calendar: callCalendarContext,
+                matches: lastMatches,
+                judgment: lastJudgment)
+            var audioRetained = true
+            if let encryption {
+                try encryption.encrypt(
+                    archive, to: directory.appendingPathComponent("session.enc"))
+                if retention.autoDeleteAudioAfterTranscription {
+                    try? FileManager.default.removeItem(at: result.micFileURL)
+                    try? FileManager.default.removeItem(at: result.systemFileURL)
+                    audioRetained = false
+                }
+            } else {
+                // No keychain key (should not happen): keep nothing on disk
+                // rather than write plaintext content.
+                Self.log.error("encryption unavailable — session content not persisted")
+            }
+            let recordID = UUID()
+            currentRecordID = recordID
+            try? await store?.insert(SessionStore.Row(
+                id: recordID,
+                startedAt: sessionStartedAt,
+                duration: result.duration,
+                directoryPath: directory.path,
+                projectPath: lastJudgment?.match.projectPath,
+                confidence: lastJudgment?.match.confidence,
+                callType: lastJudgment?.callType,
+                audioRetained: audioRetained,
+                status: "review"))
             processingDetail = ""
             if apply(.transcriptReady(transcript)) {
                 onReview?(transcript)
@@ -306,41 +352,6 @@ public final class CallController {
         } catch {
             processingDetail = ""
             _ = apply(.transcriptionFailed(Self.describe(error)))
-        }
-    }
-
-    /// Persists transcript.md (human) + transcript.json (structured) beside
-    /// the WAVs. (Encryption + retention arrive with the Persistence phase.)
-    private static func write(
-        _ transcript: Transcript, result: RecordingResult, to directory: URL
-    ) throws {
-        let header = """
-        # Call transcript
-        - duration: \(String(format: "%.1f", result.duration))s
-        - language: \(transcript.language)
-        - backend: \(result.backendUsed == .processTap ? "process tap" : "ScreenCaptureKit")
-
-        """
-        try (header + transcript.attributedText + "\n")
-            .write(to: directory.appendingPathComponent("transcript.md"),
-                   atomically: true, encoding: .utf8)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(transcript)
-            .write(to: directory.appendingPathComponent("transcript.json"))
-    }
-
-    /// Persists the prefilter shortlist + calendar snapshot (Phase-6 input).
-    private static func writeMatching(
-        matches: [ScoredCandidate], calendar: Core.CalendarContext?, to directory: URL
-    ) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(matches)
-            .write(to: directory.appendingPathComponent("matches.json"))
-        if let calendar {
-            try encoder.encode(calendar)
-                .write(to: directory.appendingPathComponent("calendar.json"))
         }
     }
 

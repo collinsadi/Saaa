@@ -13,6 +13,7 @@ let package = Package(
         .package(path: "../Matching"),
         .package(path: "../ClaudeBridge"),
         .package(path: "../Extraction"),
+        .package(path: "../Persistence"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "Matching", package: "Matching"),
                 .product(name: "ClaudeBridge", package: "ClaudeBridge"),
                 .product(name: "Extraction", package: "Extraction"),
+                .product(name: "Persistence", package: "Persistence"),
             ]),
         .testTarget(name: "CallSessionTests", dependencies: ["CallSession"]),
     ]
