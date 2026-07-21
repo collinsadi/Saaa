@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os
 import AudioCapture
 import CalendarContext
 import CallSession
@@ -81,20 +82,22 @@ final class CaptureHarness {
 
         let session = CaptureSession(
             configuration: CaptureConfiguration(targetPID: target.id, outputDirectory: directory))
+        let log = Logger(subsystem: "dev.collinsadi.saaa", category: "Harness")
         let monitor = Task {
             for await event in session.events {
                 switch event {
                 case .levels(let levels):
-                    // Meter feed proof for Phase 9 — visible in Console.app.
+                    // Meter feed proof for Phase 9 — visible in Console.app
+                    // (subsystem dev.collinsadi.saaa).
                     if Int(levels.time * 10) % 10 == 0 {
-                        print("levels t=\(String(format: "%.1f", levels.time))s mic=\(levels.mic.rmsDecibels)dB sys=\(levels.system.rmsDecibels)dB")
+                        log.info("levels t=\(String(format: "%.1f", levels.time))s mic=\(levels.mic.rmsDecibels)dB sys=\(levels.system.rmsDecibels)dB")
                     }
                 case .systemAudioPermissionSuspected:
-                    print("warning: system lane is all-zero — System Audio Recording grant suspected missing")
+                    log.warning("system lane is all-zero — System Audio Recording grant suspected missing")
                 case .stopped(let reason):
-                    print("capture stopped: \(reason)")
+                    log.info("capture stopped: \(String(describing: reason), privacy: .public)")
                 default:
-                    print("event: \(event)")
+                    log.info("event: \(String(describing: event), privacy: .public)")
                 }
             }
         }
