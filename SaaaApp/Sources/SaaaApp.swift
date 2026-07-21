@@ -81,7 +81,7 @@ struct SaaaApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Saaa", systemImage: menuBarIcon) {
+        MenuBarExtra {
             SaaaMenu(
                 controller: controller, harness: harness,
                 onSetup: {
@@ -91,20 +91,21 @@ struct SaaaApp: App {
                     }
                 },
                 onHistory: { historyPresenter.show() })
+        } label: {
+            // Brand glyph when idle; system indicators while active (the
+            // consent-first visible recording state).
+            switch controller.state {
+            case .recording:
+                Image(systemName: "record.circle")
+            case .armed, .processing:
+                Image(systemName: "waveform.badge.magnifyingglass")
+            default:
+                Image("MenuBarIcon")
+            }
         }
         Settings {
             SaaaSettingsView(controller: controller)
                 .saaaThemed()
-        }
-    }
-
-    /// The always-visible recording indicator (consent-first): the icon
-    /// changes whenever capture is live or busy.
-    private var menuBarIcon: String {
-        switch controller.state {
-        case .recording: "record.circle"
-        case .armed, .processing: "waveform.badge.magnifyingglass"
-        default: "waveform"
         }
     }
 
