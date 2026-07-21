@@ -21,12 +21,23 @@ import Transcription
 struct SaaaApp: App {
     @State private var harness = CaptureHarness()
     @State private var controller: CallController
-    @State private var reviewPresenter = ReviewWindowPresenter()
-    @State private var hotkey: HotkeyMonitor?
+    @State private var reviewPresenter: ReviewWindowPresenter
+    @State private var hotkey: HotkeyMonitor
+    @State private var island: IslandController
 
     init() {
         let controller = CallController()
         _controller = State(initialValue: controller)
+
+        // Wire the always-on surfaces at launch (not on first menu open):
+        // review presenter, global hotkey, and the notch island.
+        let presenter = ReviewWindowPresenter()
+        controller.onReview = { transcript in
+            presenter.show(controller: controller, transcript: transcript)
+        }
+        _reviewPresenter = State(initialValue: presenter)
+        _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
+        _island = State(initialValue: IslandController(callController: controller))
 
         // Headless capture self-test (dev tooling): `open Saaa.app --args
         // --selftest [--tap-only|--sck]` records 5 s, writes the usual
@@ -57,7 +68,6 @@ struct SaaaApp: App {
     var body: some Scene {
         MenuBarExtra("Saaa", systemImage: menuBarIcon) {
             SaaaMenu(controller: controller, harness: harness)
-                .onAppear { wireUpOnce() }
         }
     }
 
@@ -71,15 +81,6 @@ struct SaaaApp: App {
         }
     }
 
-    private func wireUpOnce() {
-        guard hotkey == nil else { return }
-        let controller = controller
-        let presenter = reviewPresenter
-        controller.onReview = { transcript in
-            presenter.show(controller: controller, transcript: transcript)
-        }
-        hotkey = HotkeyMonitor { controller.toggle() }
-    }
 }
 
 /// The Phase-4 menu: session state + Start/Stop, the silence prompt, and the
