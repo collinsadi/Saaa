@@ -31,6 +31,7 @@ struct IslandRootView: View {
     let controller: CallController
     let metrics: NotchMetrics
     let outsideClick: OutsideClickSignal
+    let welcome: WelcomePulse
 
     @Environment(\.saaa) private var saaa
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -71,7 +72,8 @@ struct IslandRootView: View {
     /// Coarse tier discriminator — drives morph animations without
     /// retriggering on timer/level updates.
     private var tierID: String {
-        switch controller.state {
+        if welcome.active, case .idle = controller.state { return "welcome" }
+        return switch controller.state {
         case .idle, .done: "dormant"
         case .armed: "armed"
         case .recording: isExpanded ? "rec-expanded" : "rec-compact"
@@ -108,7 +110,11 @@ struct IslandRootView: View {
         case .idle, .done:
             // Dormant: the bare notch IS the state. (No-notch Macs hide the
             // capsule entirely when dormant — never a fake notch.)
-            EmptyView()
+            if welcome.active {
+                welcomePanel
+            } else {
+                EmptyView()
+            }
         case .armed:
             compactBar {
                 Lamp(.armed).matchedGeometryEffect(id: "lamp", in: lampNamespace)
@@ -278,6 +284,58 @@ struct IslandRootView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label) level")
+    }
+
+    // MARK: - Welcome tier
+
+    /// The post-onboarding hello: grows out of the notch, teaches the
+    /// hotkey, then retreats into it after a dwell (the retreat teaches
+    /// where Saaa lives). Click dismisses immediately.
+    private var welcomePanel: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
+                Lamp(.idle).matchedGeometryEffect(id: "lamp", in: lampNamespace)
+                Text("Saaa lives here")
+                    .font(SaaaFont.headline)
+                    .foregroundStyle(saaa.textPrimary)
+                Spacer()
+                Text("⌥⌘R")
+                    .font(SaaaFont.readoutValue)
+                    .foregroundStyle(saaa.tideEmphasis)
+                    .padding(.horizontal, Space.sm)
+                    .frame(height: Size.controlSm)
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.sm)
+                            .strokeBorder(saaa.borderControl, lineWidth: 1))
+            }
+            Text("Press the hotkey during a call — the island records, files, and retreats when it's done.")
+                .font(SaaaFont.callout)
+                .foregroundStyle(saaa.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Space.lg)
+        .padding(.top, metrics.hasNotch ? metrics.topInset : 0)
+        .frame(width: Size.Island.expandedWidth)
+        .background(
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: Size.Island.expandedRadius,
+                bottomTrailingRadius: Size.Island.expandedRadius)
+                .fill(SaaaPalette.islandSurface))
+        .overlay(
+            IslandOpenBorder(cornerRadius: Size.Island.expandedRadius)
+                .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(Motion.collapse(reduceMotion: reduceMotion)) {
+                welcome.dismiss()
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(10))
+            withAnimation(Motion.collapse(reduceMotion: reduceMotion)) {
+                welcome.dismiss()
+            }
+        }
     }
 
     // MARK: - Peek tier

@@ -44,9 +44,11 @@ struct SaaaApp: App {
         if !UserDefaults.standard.bool(forKey: "onboardingComplete"),
            !CommandLine.arguments.contains("--selftest") {
             let onboarding = onboardingPresenter
+            let island = _island.wrappedValue
             Task { @MainActor in
                 onboarding.show {
                     UserDefaults.standard.set(true, forKey: "onboardingComplete")
+                    island.showWelcome()
                 }
             }
         }
@@ -80,7 +82,10 @@ struct SaaaApp: App {
     var body: some Scene {
         MenuBarExtra("Saaa", systemImage: menuBarIcon) {
             SaaaMenu(controller: controller, harness: harness) {
-                onboardingPresenter.show {}
+                let island = island
+                onboardingPresenter.show {
+                    island.showWelcome()
+                }
             }
         }
         Settings {

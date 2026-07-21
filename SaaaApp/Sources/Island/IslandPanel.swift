@@ -38,6 +38,18 @@ final class OutsideClickSignal {
     func bump() { count += 1 }
 }
 
+/// One-shot welcome trigger: the island introduces itself after onboarding
+/// (grows out of the notch, teaches the hotkey, retreats — the retreat IS
+/// the lesson about where Saaa lives).
+@MainActor
+@Observable
+final class WelcomePulse {
+    private(set) var active = false
+
+    func fire() { active = true }
+    func dismiss() { active = false }
+}
+
 /// Owns the island panel: creation, notch-centered placement, and
 /// re-measurement on display changes. All morphing happens SwiftUI-side —
 /// the panel frame never animates.
@@ -56,6 +68,13 @@ final class IslandController {
     /// collapse the expanded tier ("Esc/outside collapses, recording
     /// continues"). Global mouse monitors need no extra permission.
     let outsideClick = OutsideClickSignal()
+    /// Post-onboarding hello.
+    let welcome = WelcomePulse()
+
+    /// Shows the welcome tier (auto-retracts from the root view).
+    func showWelcome() {
+        welcome.fire()
+    }
 
     init(callController: CallController) {
         self.callController = callController
@@ -91,7 +110,8 @@ final class IslandController {
         let panel = self.panel ?? IslandPanel(frame: frame)
         panel.setFrame(frame, display: true)
         let root = IslandRootView(
-            controller: callController, metrics: metrics, outsideClick: outsideClick)
+            controller: callController, metrics: metrics,
+            outsideClick: outsideClick, welcome: welcome)
             .saaaThemed(fixed: .dark)
         panel.contentView = NSHostingView(rootView: AnyView(root))
         panel.orderFrontRegardless()
