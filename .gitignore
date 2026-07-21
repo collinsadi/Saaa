@@ -22,3 +22,4 @@ xcuserdata/
 *.gguf
 ARCHITECTURE.md
 docs/
+dist/

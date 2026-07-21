@@ -122,10 +122,12 @@ struct SaaaMenu: View {
     var body: some View {
         statusSection
         Divider()
+        #if DEBUG
         Menu("Capture Harness") {
             HarnessMenu(harness: harness)
         }
         Divider()
+        #endif
         Button("History…") {
             onHistory()
         }
