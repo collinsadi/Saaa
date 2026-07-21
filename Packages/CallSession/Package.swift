@@ -9,6 +9,8 @@ let package = Package(
         .package(path: "../Core"),
         .package(path: "../AudioCapture"),
         .package(path: "../Transcription"),
+        .package(path: "../CalendarContext"),
+        .package(path: "../Matching"),
     ],
     targets: [
         .target(
@@ -17,6 +19,8 @@ let package = Package(
                 .product(name: "Core", package: "Core"),
                 .product(name: "AudioCapture", package: "AudioCapture"),
                 .product(name: "Transcription", package: "Transcription"),
+                .product(name: "CalendarContext", package: "CalendarContext"),
+                .product(name: "Matching", package: "Matching"),
             ]),
         .testTarget(name: "CallSessionTests", dependencies: ["CallSession"]),
     ]

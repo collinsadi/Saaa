@@ -1,7 +1,9 @@
 import AppKit
 import AudioCapture
+import CalendarContext
 import Core
 import Foundation
+import Matching
 import Observation
 import Transcription
 import os
@@ -30,10 +32,15 @@ public final class CallController {
     /// UI hook: called (main actor) when a transcript enters review.
     @ObservationIgnored public var onReview: (@MainActor (Transcript) -> Void)?
 
+    /// Prefilter shortlist of the last processed call (Phase-6 input).
+    public private(set) var lastMatches: [ScoredCandidate] = []
+
     private var captureSession: CaptureSession?
     private var eventTask: Task<Void, Never>?
     private var watchdog = SilenceWatchdog()
     private let modelManager = ModelManager()
+    private let calendarReader = CalendarReader()
+    private var callCalendarContext: Core.CalendarContext?
     /// Kept across calls so the ~1.6 GB model loads once per app run.
     private var cachedTranscriber: WhisperTranscriber?
 
@@ -112,6 +119,14 @@ public final class CallController {
         do {
             try await session.start()
             _ = apply(.captureStarted)
+            // Snapshot the overlapping calendar event off the hot path —
+            // first use shows the calendar permission dialog in context.
+            callCalendarContext = nil
+            Task { [weak self] in
+                guard let self else { return }
+                let context = await calendarReader.eventOverlapping()
+                self.callCalendarContext = context
+            }
         } catch {
             captureSession = nil
             _ = apply(.captureFailed(Self.describe(error)))
@@ -204,13 +219,28 @@ public final class CallController {
             }
             guard let transcriber = cachedTranscriber else { return }
 
+            // Calendar terms pre-warm Whisper's vocabulary (proper nouns).
+            let bias = VocabularyBias.initialPrompt(
+                terms: callCalendarContext?.signalTerms ?? [])
             processingDetail = "Transcribing your side…"
-            let mic = try await transcriber.transcribe(wavFile: result.micFileURL)
+            let mic = try await transcriber.transcribe(
+                wavFile: result.micFileURL, initialPrompt: bias)
             processingDetail = "Transcribing their side…"
-            let system = try await transcriber.transcribe(wavFile: result.systemFileURL)
+            let system = try await transcriber.transcribe(
+                wavFile: result.systemFileURL, initialPrompt: bias)
 
             let transcript = TranscriptMerger.merge(mic: mic, system: system)
+
+            // Phase-5 shortlist: cheap prefilter over the local Claude store,
+            // persisted beside the transcript for the Phase-6 judgment.
+            processingDetail = "Matching projects…"
+            let candidates = CandidateEnumerator().enumerate()
+            lastMatches = Prefilter.rank(
+                candidates: candidates, transcript: transcript,
+                calendar: callCalendarContext)
             try Self.write(transcript, result: result, to: directory)
+            try Self.writeMatching(
+                matches: lastMatches, calendar: callCalendarContext, to: directory)
             processingDetail = ""
             if apply(.transcriptReady(transcript)) {
                 onReview?(transcript)
@@ -240,6 +270,20 @@ public final class CallController {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(transcript)
             .write(to: directory.appendingPathComponent("transcript.json"))
+    }
+
+    /// Persists the prefilter shortlist + calendar snapshot (Phase-6 input).
+    private static func writeMatching(
+        matches: [ScoredCandidate], calendar: Core.CalendarContext?, to directory: URL
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(matches)
+            .write(to: directory.appendingPathComponent("matches.json"))
+        if let calendar {
+            try encoder.encode(calendar)
+                .write(to: directory.appendingPathComponent("calendar.json"))
+        }
     }
 
     // MARK: - Helpers
