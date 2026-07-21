@@ -18,7 +18,7 @@ final class HistoryPresenter {
         let hosting = NSHostingController(rootView: view)
         let window = self.window ?? NSWindow(contentViewController: hosting)
         window.contentViewController = hosting
-        window.title = "Saaa — History"
+        window.title = "Saaa History"
         window.setContentSize(NSSize(width: 860, height: 560))
         window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
@@ -116,6 +116,15 @@ private struct HistoryView: View {
     private var sessionList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(spacing: Space.sm) {
+                    BrandMark(size: 18)
+                    Text("Calls")
+                        .font(SaaaFont.headline)
+                        .foregroundStyle(saaa.textPrimary)
+                    Spacer()
+                }
+                .padding(.horizontal, Space.md)
+                .padding(.bottom, Space.sm)
                 if model.rows.isEmpty {
                     emptyState
                 }
@@ -173,7 +182,7 @@ private struct HistoryView: View {
             Text("No calls yet")
                 .font(SaaaFont.headline)
                 .foregroundStyle(saaa.textPrimary)
-            Text("Press ⌥⌘R during a call — every processed recording appears here.")
+            Text("Press ⌥⌘R during a call. Every processed recording lands here.")
                 .font(SaaaFont.callout)
                 .foregroundStyle(saaa.textSecondary)
         }

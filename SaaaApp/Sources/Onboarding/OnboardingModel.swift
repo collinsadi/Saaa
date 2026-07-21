@@ -8,16 +8,19 @@ import Foundation
 import Transcription
 
 /// State + actions for the first-run bootstrap. Every dependency degrades
-/// gracefully — the flow can always be finished and re-run from the menu.
+/// gracefully; the flow can always be finished and re-run from the menu.
 @MainActor
 @Observable
 final class OnboardingModel {
 
+    /// Status semantics drive the chip colors: granted = success, pending =
+    /// neutral, action = ember, denied = danger, working = spinner.
     enum StepStatus: Equatable {
         case unknown
         case working(String)
         case granted(String)
-        case actionNeeded(String)
+        case pending(String)
+        case denied(String)
     }
 
     var step = 0
@@ -36,47 +39,47 @@ final class OnboardingModel {
     func refresh() {
         micStatus = switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: .granted("Granted")
-        case .denied, .restricted: .actionNeeded("Denied — enable in System Settings → Microphone")
-        default: .actionNeeded("Not requested yet")
+        case .denied, .restricted: .denied("Denied")
+        default: .pending("Not asked yet")
         }
         calendarStatus = switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess: .granted("Granted")
-        case .denied, .restricted: .actionNeeded("Denied — optional, Saaa works without it")
-        default: .actionNeeded("Optional — boosts project matching")
+        case .denied, .restricted: .denied("Denied")
+        default: .pending("Optional")
         }
         modelStatus = modelManager.isCached(.largeV3Turbo) && modelManager.isCached(.sileroVAD)
-            ? .granted("Cached — never downloaded again")
-            : .actionNeeded("1.6 GB one-time download")
+            ? .granted("Cached")
+            : .pending("1.6 GB, once")
         if case .granted = systemAudioStatus {} else {
-            systemAudioStatus = .actionNeeded("Needs a one-time manual grant")
+            systemAudioStatus = .pending("Manual grant")
         }
     }
 
     // MARK: - Actions
 
     func requestMicrophone() {
-        micStatus = .working("Asking…")
+        micStatus = .working("Asking")
         Task {
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
-            micStatus = granted
-                ? .granted("Granted")
-                : .actionNeeded("Denied — enable in System Settings → Microphone")
+            micStatus = granted ? .granted("Granted") : .denied("Denied")
         }
     }
 
-    /// macOS never volunteers the System Audio Recording prompt for this app;
-    /// the grant is added manually in the Settings pane (lower list).
+    /// macOS never volunteers this prompt; the grant is added by hand in the
+    /// Settings pane.
     func openSystemAudioSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
     }
 
-    /// Ground-truth verification: a 1.5 s silent global-tap capture. When the
-    /// grant is missing the auto-started tap gates the whole aggregate and
-    /// zero IO runs → duration 0. Any nonzero duration proves the grant.
+    /// Ground-truth check: a short silent global-tap capture. Without the
+    /// grant the auto-started tap gates the aggregate and zero IO runs.
+    /// Caveat: if the app was launched by a script/shell, macOS can
+    /// misattribute the check even when the grant is on; the failure copy
+    /// tells the user to quit and reopen Saaa themselves.
     func verifySystemAudio() {
-        systemAudioStatus = .working("Verifying…")
+        systemAudioStatus = .working("Verifying")
         Task {
             let probeDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("saaa-probe-\(UUID().uuidString)", isDirectory: true)
@@ -85,51 +88,53 @@ final class OnboardingModel {
                 target: .allSystemAudio, outputDirectory: probeDir))
             do {
                 try await session.start()
-                try? await Task.sleep(for: .milliseconds(1500))
+                try? await Task.sleep(for: .milliseconds(2200))
                 let result = try await session.stop()
-                systemAudioStatus = result.duration > 0
-                    ? .granted("Granted and verified")
-                    : .actionNeeded("Still blocked — check Saaa is in the LOWER list (System Audio Recording Only) and toggled on")
+                systemAudioStatus = result.duration > 0.3
+                    ? .granted("Verified")
+                    : .denied("Blocked")
             } catch {
-                systemAudioStatus = .actionNeeded("Verification failed: \(String(describing: error))")
+                systemAudioStatus = .denied("Check failed")
             }
         }
     }
 
+    /// True when the last verification failed, for the recovery hint.
+    var systemAudioBlocked: Bool {
+        if case .denied = systemAudioStatus { return true }
+        return false
+    }
+
     func requestCalendar() {
-        calendarStatus = .working("Asking…")
+        calendarStatus = .working("Asking")
         Task {
             let granted = await calendarReader.ensureAccess()
-            calendarStatus = granted
-                ? .granted("Granted")
-                : .actionNeeded("Denied — optional, Saaa works without it")
+            calendarStatus = granted ? .granted("Granted") : .denied("Denied")
         }
     }
 
     func downloadModels() {
-        modelStatus = .working("Starting download…")
+        modelStatus = .working("Starting")
         Task {
             do {
                 _ = try await modelManager.ensure(.sileroVAD)
                 _ = try await modelManager.ensure(.largeV3Turbo) { [weak self] progress in
                     Task { @MainActor [weak self] in
-                        self?.modelStatus = .working(
-                            "Downloading \(Int(progress.fraction * 100))% of 1.6 GB")
+                        self?.modelStatus = .working("\(Int(progress.fraction * 100))%")
                     }
                 }
-                modelStatus = .granted("Cached — never downloaded again")
+                modelStatus = .granted("Cached")
             } catch {
-                modelStatus = .actionNeeded("Download failed: \(String(describing: error))")
+                modelStatus = .denied("Failed")
             }
         }
     }
 
     func checkClaude() {
-        claudeStatus = .working("Checking…")
+        claudeStatus = .working("Checking")
         Task {
             guard await claudeCLI.locate() != nil else {
-                claudeStatus = .actionNeeded(
-                    "claude not found — install Claude Code, then re-check")
+                claudeStatus = .denied("Not found")
                 return
             }
             do {
@@ -137,13 +142,11 @@ final class OnboardingModel {
                     prompt: "Reply with exactly: OK",
                     workingDirectory: FileManager.default.temporaryDirectory,
                     allowedTools: [], maxTurns: 1, timeout: .seconds(60)))
-                claudeStatus = .granted("Installed and signed in")
+                claudeStatus = .granted("Signed in")
             } catch ClaudeBridgeError.notAuthenticated {
-                claudeStatus = .actionNeeded(
-                    "Installed but signed out — run `claude` in Terminal and log in")
+                claudeStatus = .denied("Signed out")
             } catch {
-                claudeStatus = .actionNeeded(
-                    "Check failed: \(String(describing: error))")
+                claudeStatus = .denied("Check failed")
             }
         }
     }

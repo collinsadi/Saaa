@@ -157,7 +157,7 @@ struct SaaaMenu: View {
                 Text("Recording…")
             }
             if controller.silencePromptVisible {
-                Button("Still recording? — Keep going") { controller.dismissSilencePrompt() }
+                Button("Still recording? Keep going") { controller.dismissSilencePrompt() }
             }
             Button("Stop Recording (⌥⌘R)") { controller.toggle() }
         case .processing:
@@ -295,7 +295,7 @@ struct HarnessMenu: View {
     var body: some View {
         switch harness.state {
         case .idle:
-            Text("Capture harness — record 10 s")
+            Text("Capture harness: record 10 s")
             let targets = harness.availableTargets()
             if targets.isEmpty {
                 Text("No audio-capable apps found")

@@ -292,9 +292,9 @@ struct IslandRootView: View {
     /// hotkey, then retreats into it after a dwell (the retreat teaches
     /// where Saaa lives). Click dismisses immediately.
     private var welcomePanel: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            HStack(spacing: Space.sm) {
-                Lamp(.idle).matchedGeometryEffect(id: "lamp", in: lampNamespace)
+        VStack(alignment: .leading, spacing: Space.md) {
+            HStack(spacing: Space.md) {
+                BrandMark(size: 26)
                 Text("Saaa lives here")
                     .font(SaaaFont.headline)
                     .foregroundStyle(saaa.textPrimary)
@@ -308,10 +308,15 @@ struct IslandRootView: View {
                         RoundedRectangle(cornerRadius: Radius.sm)
                             .strokeBorder(saaa.borderControl, lineWidth: 1))
             }
-            Text("Press the hotkey during a call — the island records, files, and retreats when it's done.")
-                .font(SaaaFont.callout)
-                .foregroundStyle(saaa.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: Space.sm) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(saaa.tideEmphasis)
+                Text("Press it during a call. Records, files, retreats.")
+                    .font(SaaaFont.callout)
+                    .foregroundStyle(saaa.textSecondary)
+            }
+            .transition(.opacity)
         }
         .padding(Space.lg)
         .padding(.top, metrics.hasNotch ? metrics.topInset : 0)
@@ -386,7 +391,7 @@ struct IslandRootView: View {
            let path = judgment.match.projectPath {
             return "Filed to \(URL(filePath: path).lastPathComponent)"
         }
-        return "Transcript ready — unfiled"
+        return "Transcript ready, unfiled"
     }
 
     /// Quiet afterglow: a single tide dot below the notch after peek retracts.

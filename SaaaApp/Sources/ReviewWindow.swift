@@ -26,7 +26,7 @@ final class ReviewWindowPresenter {
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Saaa — Review"
+        window.title = "Saaa Review"
         window.setContentSize(NSSize(width: 880, height: 640))
         window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
@@ -147,7 +147,7 @@ private struct ReviewView: View {
                 if let judgment = controller.lastJudgment,
                    let path = judgment.match.projectPath {
                     // A low-confidence guess is shown as an FYI only.
-                    Text("Closest guess: \(URL(filePath: path).lastPathComponent) at \(Int(judgment.match.confidence * 100))% — below the filing bar")
+                    Text("Closest guess: \(URL(filePath: path).lastPathComponent) at \(Int(judgment.match.confidence * 100))%, below the filing bar")
                         .font(SaaaFont.callout)
                         .foregroundStyle(saaa.textSecondary)
                     confidenceRow(judgment.match.confidence)
@@ -224,7 +224,7 @@ private struct ReviewView: View {
                         .foregroundStyle(saaa.successText)
                 case .conflict(let file, let diff):
                     VStack(alignment: .leading, spacing: Space.xxs) {
-                        Label("\(file) changed since review — not written",
+                        Label("\(file) changed since review, not written",
                               systemImage: "exclamationmark.triangle.fill")
                             .font(SaaaFont.body)
                             .foregroundStyle(saaa.dangerText)
@@ -251,7 +251,7 @@ private struct ReviewView: View {
                 Button {
                     outcomes = controller.applyWriteBack(approvedItems: approved.sorted())
                 } label: {
-                    Text("Write back — \(approved.count) item\(approved.count == 1 ? "" : "s")")
+                    Text("Write back \(approved.count) item\(approved.count == 1 ? "" : "s")")
                         .font(SaaaFont.bodyEmphasis)
                         .foregroundStyle(saaa.textOnAccent)
                         .padding(.horizontal, Space.lg)

@@ -2,8 +2,8 @@ import AppKit
 import DesignSystem
 import SwiftUI
 
-/// First-run bootstrap window (Figma H · Onboarding): four steps, permission
-/// cards with engraved headers and trailing status, Back/Continue.
+/// First-run bootstrap: brand header, segmented step meter, short copy,
+/// status chips, capsule CTAs. Calm and quick.
 @MainActor
 final class OnboardingPresenter {
 
@@ -19,7 +19,7 @@ final class OnboardingPresenter {
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.title = "Welcome to Saaa"
-        window.setContentSize(NSSize(width: 560, height: 560))
+        window.setContentSize(NSSize(width: 540, height: 600))
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -36,22 +36,58 @@ private struct OnboardingView: View {
     @State private var model = OnboardingModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
-            Text("Step \(model.step + 1) of \(model.stepCount) · \(stepName)")
-                .engravedLabelStyle()
-                .foregroundStyle(saaa.textTertiary)
+        VStack(alignment: .leading, spacing: Space.xl) {
+            header
             stepBody
+                .transition(.opacity)
+                .id(model.step)
             Spacer(minLength: 0)
             footer
         }
         .padding(Space.xxl)
-        .frame(width: 560, height: 560)
+        .frame(width: 540, height: 600)
         .background(saaa.surfaceBase)
+        .animation(Motion.standard, value: model.step)
         .onAppear { model.refresh() }
     }
 
-    private var stepName: String {
-        ["Welcome", "Permissions", "Transcription", "Claude Code"][model.step]
+    // MARK: - Header: brand + step meter
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            HStack(spacing: Space.md) {
+                BrandMark(size: 30)
+                Text("Saaa")
+                    .font(SaaaFont.title2)
+                    .foregroundStyle(saaa.textPrimary)
+                Spacer()
+                Text("0\(model.step + 1) / 0\(model.stepCount)")
+                    .font(SaaaFont.monoCaption)
+                    .foregroundStyle(saaa.textTertiary)
+            }
+            stepMeter
+        }
+    }
+
+    /// Segmented progress meter in the design system's meter language:
+    /// finished and current segments fill tide, upcoming stay inset.
+    private var stepMeter: some View {
+        HStack(spacing: Space.xs) {
+            ForEach(0..<model.stepCount, id: \.self) { index in
+                Capsule()
+                    .fill(index <= model.step ? saaa.tideFill : saaa.surfaceInset)
+                    .frame(height: 4)
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        if index == model.step {
+                            Capsule().stroke(saaa.tideEmphasis.opacity(0.5), lineWidth: 1)
+                        }
+                    }
+            }
+        }
+        .animation(Motion.standard, value: model.step)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(model.step + 1) of \(model.stepCount)")
     }
 
     // MARK: - Steps
@@ -67,92 +103,89 @@ private struct OnboardingView: View {
     }
 
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            Text("Every call, in context")
-                .font(SaaaFont.title1)
-                .foregroundStyle(saaa.textPrimary)
-            Text("Press ⌥⌘R during a call. Saaa records both sides, transcribes on this Mac, files the conversation into the right project with your own Claude Code, and writes back only what you approve.")
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.textSecondary)
-            card("Private by design", status: nil) {
-                Text("Nothing is uploaded, ever. Audio is deleted the moment its transcript exists; transcripts are encrypted on this Mac. The only outbound traffic is your own Claude Code subscription.")
-            }
-            card("Consent is yours to give", status: nil) {
-                Text("Recording calls is legally sensitive. In many places every participant must consent. Saaa always shows a visible recording indicator — telling people you record is your responsibility.")
-            }
+        VStack(alignment: .leading, spacing: Space.lg) {
+            titleBlock(
+                "Every call, in context",
+                "Press ⌥⌘R during a call. Saaa records, transcribes, and files it into the right project.")
+            infoCard(
+                icon: "lock.shield.fill",
+                title: "Private by design",
+                body: "Everything runs on this Mac. Audio is deleted after transcription.")
+            infoCard(
+                icon: "person.2.wave.2.fill",
+                title: "Consent matters",
+                body: "Recording laws vary. Saaa always shows a visible indicator. Telling people is on you.")
         }
     }
 
     private var permissions: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            Text("Saaa listens only while you record")
-                .font(SaaaFont.title1)
-                .foregroundStyle(saaa.textPrimary)
-            permissionCard(
-                "Microphone", status: model.micStatus,
+            titleBlock("Saaa listens only while you record", nil)
+            statusCard(
+                icon: "mic.fill", title: "Microphone",
                 body: "Your side of the call.",
-                actionTitle: "Grant") { model.requestMicrophone() }
-            card("System audio", status: model.systemAudioStatus) {
-                VStack(alignment: .leading, spacing: Space.sm) {
-                    Text("The other side of the call. macOS requires adding Saaa by hand:")
-                    Text("1. Open the Settings pane below\n2. In the LOWER list — “System Audio Recording Only” — click ＋\n3. Choose Applications → Saaa, toggle it on\n4. Come back and Verify")
-                        .font(SaaaFont.callout)
-                        .foregroundStyle(saaa.textSecondary)
-                    HStack(spacing: Space.md) {
-                        actionButton("Open Settings") { model.openSystemAudioSettings() }
-                        actionButton("Verify") { model.verifySystemAudio() }
-                    }
-                }
-            }
-            permissionCard(
-                "Calendar", status: model.calendarStatus,
-                body: "Reads only the event overlapping a call — a strong hint for filing.",
-                actionTitle: "Grant") { model.requestCalendar() }
+                status: model.micStatus,
+                action: ("Grant", { model.requestMicrophone() }))
+            statusCard(
+                icon: "speaker.wave.2.fill", title: "System audio",
+                body: "The other side. macOS needs a one-time manual grant in the lower list of the Settings pane.",
+                status: model.systemAudioStatus,
+                action: ("Open Settings", { model.openSystemAudioSettings() }),
+                secondaryAction: ("Verify", { model.verifySystemAudio() }),
+                footnote: model.systemAudioBlocked
+                    ? "Toggle on but still blocked? Quit Saaa, open it again from Applications, then verify."
+                    : nil)
+            statusCard(
+                icon: "calendar", title: "Calendar",
+                body: "Optional. The event during a call helps filing.",
+                status: model.calendarStatus,
+                action: ("Grant", { model.requestCalendar() }))
         }
     }
 
     private var transcription: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            Text("Transcription lives on this Mac")
-                .font(SaaaFont.title1)
-                .foregroundStyle(saaa.textPrimary)
-            Text("Saaa uses Whisper (large-v3-turbo) running locally — your audio never leaves the machine. The model is fetched once, checksum-verified, and cached forever.")
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.textSecondary)
-            permissionCard(
-                "Whisper model", status: model.modelStatus,
-                body: "ggml-large-v3-turbo + Silero voice-activity model.",
-                actionTitle: "Download") { model.downloadModels() }
+        VStack(alignment: .leading, spacing: Space.lg) {
+            titleBlock(
+                "Transcription stays on this Mac",
+                "Whisper runs locally. One download, cached forever.")
+            statusCard(
+                icon: "waveform", title: "Whisper model",
+                body: "large-v3-turbo plus voice detection.",
+                status: model.modelStatus,
+                action: ("Download", { model.downloadModels() }))
         }
     }
 
     private var claude: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            Text("Your Claude Code does the filing")
-                .font(SaaaFont.title1)
-                .foregroundStyle(saaa.textPrimary)
-            Text("Saaa asks the claude CLI — under your existing subscription — which project a call belongs to and what context is worth keeping. Saaa manages no API keys.")
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.textSecondary)
-            permissionCard(
-                "claude CLI", status: model.claudeStatus,
-                body: "Read-only for matching; repo writes always need your approval.",
-                actionTitle: "Check") { model.checkClaude() }
-            card("Without it", status: nil) {
-                Text("Saaa still records and transcribes — calls simply stay “unfiled” until Claude Code is available.")
-            }
+        VStack(alignment: .leading, spacing: Space.lg) {
+            titleBlock(
+                "Your Claude Code files the call",
+                "Runs under your subscription. Writes only what you approve.")
+            statusCard(
+                icon: "terminal.fill", title: "claude CLI",
+                body: "Read-only for matching.",
+                status: model.claudeStatus,
+                action: ("Check", { model.checkClaude() }))
+            infoCard(
+                icon: "tray.fill",
+                title: "Works without it",
+                body: "Calls simply stay unfiled until Claude Code is ready.")
         }
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: Space.md) {
             if model.step > 0 {
-                Button("Back") { model.step -= 1 }
-                    .buttonStyle(.plain)
-                    .font(SaaaFont.body)
-                    .foregroundStyle(saaa.textSecondary)
+                Button {
+                    model.step -= 1
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                        .font(SaaaFont.body)
+                        .foregroundStyle(saaa.textSecondary)
+                }
+                .buttonStyle(.plain)
             }
             Spacer()
             Button {
@@ -163,57 +196,63 @@ private struct OnboardingView: View {
                     onFinish()
                 }
             } label: {
-                Text(model.step < model.stepCount - 1 ? "Continue" : "Start using Saaa")
-                    .font(SaaaFont.bodyEmphasis)
-                    .foregroundStyle(saaa.textOnAccent)
-                    .padding(.horizontal, Space.lg)
-                    .frame(height: Size.controlLg)
-                    .background(RoundedRectangle(cornerRadius: Radius.md).fill(saaa.tideFill))
+                HStack(spacing: Space.sm) {
+                    if model.step == model.stepCount - 1 {
+                        BrandMark(size: 16, ink: saaa.textOnAccent, ember: saaa.textOnAccent)
+                        Text("Start using Saaa")
+                    } else {
+                        Text("Continue")
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                }
+                .font(SaaaFont.bodyEmphasis)
+                .foregroundStyle(saaa.textOnAccent)
+                .padding(.horizontal, Space.xl)
+                .frame(height: 34)
+                .background(Capsule().fill(saaa.tideFill))
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
         }
     }
 
-    // MARK: - Pieces
+    // MARK: - Building blocks
 
-    private func permissionCard(
-        _ title: String, status: OnboardingModel.StepStatus,
-        body bodyText: String, actionTitle: String,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        card(title, status: status) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text(bodyText)
-                if showAction(for: status) {
-                    actionButton(actionTitle, action: action)
-                }
-            }
-        }
-    }
-
-    private func showAction(for status: OnboardingModel.StepStatus) -> Bool {
-        switch status {
-        case .granted, .working: false
-        default: true
-        }
-    }
-
-    private func card(
-        _ title: String, status: OnboardingModel.StepStatus?,
-        @ViewBuilder content: () -> some View
-    ) -> some View {
+    private func titleBlock(_ title: String, _ subtitle: String?) -> some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            HStack {
-                Text(title).engravedLabelStyle().foregroundStyle(saaa.textTertiary)
-                Spacer()
-                if let status {
-                    statusText(status)
-                }
-            }
-            content()
-                .font(SaaaFont.body)
+            Text(title)
+                .font(SaaaFont.title1)
                 .foregroundStyle(saaa.textPrimary)
+            if let subtitle {
+                Text(subtitle)
+                    .font(SaaaFont.body)
+                    .foregroundStyle(saaa.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func iconChip(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(saaa.tideEmphasis)
+            .frame(width: 34, height: 34)
+            .background(RoundedRectangle(cornerRadius: Radius.md).fill(saaa.surfaceInset))
+    }
+
+    private func infoCard(icon: String, title: String, body bodyText: String) -> some View {
+        HStack(alignment: .top, spacing: Space.md) {
+            iconChip(icon)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(title)
+                    .font(SaaaFont.headline)
+                    .foregroundStyle(saaa.textPrimary)
+                Text(bodyText)
+                    .font(SaaaFont.callout)
+                    .foregroundStyle(saaa.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,36 +262,111 @@ private struct OnboardingView: View {
                 .strokeBorder(saaa.borderHairline, lineWidth: 1))
     }
 
-    @ViewBuilder
-    private func statusText(_ status: OnboardingModel.StepStatus) -> some View {
+    private func statusCard(
+        icon: String, title: String, body bodyText: String,
+        status: OnboardingModel.StepStatus,
+        action: (String, @MainActor () -> Void)? = nil,
+        secondaryAction: (String, @MainActor () -> Void)? = nil,
+        footnote: String? = nil
+    ) -> some View {
+        HStack(alignment: .top, spacing: Space.md) {
+            iconChip(icon)
+            VStack(alignment: .leading, spacing: Space.sm) {
+                HStack {
+                    Text(title)
+                        .font(SaaaFont.headline)
+                        .foregroundStyle(saaa.textPrimary)
+                    Spacer()
+                    statusChip(status)
+                }
+                Text(bodyText)
+                    .font(SaaaFont.callout)
+                    .foregroundStyle(saaa.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if showActions(for: status) {
+                    HStack(spacing: Space.sm) {
+                        if let action {
+                            smallButton(action.0, prominent: secondaryAction == nil, action: action.1)
+                        }
+                        if let secondaryAction {
+                            smallButton(secondaryAction.0, prominent: true, action: secondaryAction.1)
+                        }
+                    }
+                }
+                if let footnote {
+                    Text(footnote)
+                        .font(SaaaFont.caption)
+                        .foregroundStyle(saaa.emberText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.lg).fill(saaa.surfaceRaised))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg)
+                .strokeBorder(saaa.borderHairline, lineWidth: 1))
+    }
+
+    private func showActions(for status: OnboardingModel.StepStatus) -> Bool {
         switch status {
-        case .unknown:
-            EmptyView()
-        case .working(let message):
-            Text(message).font(SaaaFont.caption).foregroundStyle(saaa.textTertiary)
-        case .granted(let message):
-            Text(message).font(SaaaFont.caption).foregroundStyle(saaa.successText)
-        case .actionNeeded(let message):
-            Text(message)
-                .font(SaaaFont.caption)
-                .foregroundStyle(saaa.emberText)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 260, alignment: .trailing)
+        case .granted, .working: false
+        default: true
         }
     }
 
-    private func actionButton(
-        _ title: String, action: @escaping @MainActor () -> Void
+    /// Status chip: icon + word, colored by the state grammar.
+    @ViewBuilder
+    private func statusChip(_ status: OnboardingModel.StepStatus) -> some View {
+        switch status {
+        case .unknown:
+            EmptyView()
+        case .working(let word):
+            chip(word, icon: nil, color: saaa.tideText, spinner: true)
+        case .granted(let word):
+            chip(word, icon: "checkmark.circle.fill", color: saaa.successText)
+        case .pending(let word):
+            chip(word, icon: "circle.dashed", color: saaa.textTertiary)
+        case .denied(let word):
+            chip(word, icon: "exclamationmark.circle.fill", color: saaa.dangerText)
+        }
+    }
+
+    private func chip(
+        _ word: String, icon: String?, color: Color, spinner: Bool = false
+    ) -> some View {
+        HStack(spacing: Space.xs) {
+            if spinner {
+                ProgressView().controlSize(.mini)
+            }
+            if let icon {
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            }
+            Text(word).font(SaaaFont.caption)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, Space.sm)
+        .frame(height: 22)
+        .background(Capsule().fill(saaa.surfaceInset))
+    }
+
+    private func smallButton(
+        _ title: String, prominent: Bool, action: @escaping @MainActor () -> Void
     ) -> some View {
         Button(action: action) {
             Text(title)
                 .font(SaaaFont.bodyEmphasis)
-                .foregroundStyle(saaa.tideText)
+                .foregroundStyle(prominent ? saaa.textOnAccent : saaa.tideText)
                 .padding(.horizontal, Space.md)
-                .frame(height: Size.controlMd)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.md)
-                        .strokeBorder(saaa.borderControl, lineWidth: 1))
+                .frame(height: 28)
+                .background {
+                    if prominent {
+                        Capsule().fill(saaa.tideFill)
+                    } else {
+                        Capsule().strokeBorder(saaa.borderControl, lineWidth: 1)
+                    }
+                }
         }
         .buttonStyle(.plain)
     }
