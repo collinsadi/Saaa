@@ -24,6 +24,7 @@ struct SaaaApp: App {
     @State private var reviewPresenter: ReviewWindowPresenter
     @State private var hotkey: HotkeyMonitor
     @State private var island: IslandController
+    @State private var onboardingPresenter = OnboardingPresenter()
 
     init() {
         let controller = CallController()
@@ -38,6 +39,17 @@ struct SaaaApp: App {
         _reviewPresenter = State(initialValue: presenter)
         _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
         _island = State(initialValue: IslandController(callController: controller))
+
+        // First run: the guided bootstrap (permissions, model, claude).
+        if !UserDefaults.standard.bool(forKey: "onboardingComplete"),
+           !CommandLine.arguments.contains("--selftest") {
+            let onboarding = onboardingPresenter
+            Task { @MainActor in
+                onboarding.show {
+                    UserDefaults.standard.set(true, forKey: "onboardingComplete")
+                }
+            }
+        }
 
         // Headless capture self-test (dev tooling): `open Saaa.app --args
         // --selftest [--tap-only|--sck]` records 5 s, writes the usual
@@ -67,7 +79,9 @@ struct SaaaApp: App {
 
     var body: some Scene {
         MenuBarExtra("Saaa", systemImage: menuBarIcon) {
-            SaaaMenu(controller: controller, harness: harness)
+            SaaaMenu(controller: controller, harness: harness) {
+                onboardingPresenter.show {}
+            }
         }
         Settings {
             SaaaSettingsView(controller: controller)
@@ -92,6 +106,7 @@ struct SaaaApp: App {
 struct SaaaMenu: View {
     let controller: CallController
     let harness: CaptureHarness
+    let onSetup: () -> Void
 
     var body: some View {
         statusSection
@@ -104,6 +119,9 @@ struct SaaaMenu: View {
             Text("Settings…")
         }
         .keyboardShortcut(",")
+        Button("Run Setup…") {
+            onSetup()
+        }
         Button("Quit Saaa") {
             NSApplication.shared.terminate(nil)
         }
