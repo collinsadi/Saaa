@@ -24,6 +24,12 @@ public struct BrandMark: View {
         let unit = size / 64
         let inkColor = ink ?? saaa.textPrimary
         ZStack(alignment: .topLeading) {
+            // Sizing layer: ZStack measures child FRAMES and ignores
+            // offsets, so without this the stack collapses to 60x16 and the
+            // offset bars render outside the declared bounds (the alignment
+            // bug seen next to text).
+            Color.clear
+                .frame(width: 60 * unit, height: 64 * unit)
             RoundedRectangle(cornerRadius: 8 * unit)
                 .fill(inkColor)
                 .frame(width: 44 * unit, height: 16 * unit)
