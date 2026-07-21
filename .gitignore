@@ -20,3 +20,5 @@ xcuserdata/
 # Whisper models are downloaded at runtime, never vendored
 *.bin
 *.gguf
+ARCHITECTURE.md
+docs/
