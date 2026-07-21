@@ -10,16 +10,19 @@ public struct LevelBars: View {
     /// Linear RMS 0...1.
     private let level: Float
     private let barCount: Int
+    /// Explicit freeze (user setting) on top of the system Reduce Motion.
+    private let frozen: Bool
 
     @State private var frozenLevel: Float = 0
 
-    public init(level: Float, barCount: Int = 20) {
+    public init(level: Float, barCount: Int = 20, frozen: Bool = false) {
         self.level = level
         self.barCount = barCount
+        self.frozen = frozen
     }
 
     public var body: some View {
-        let displayed = reduceMotion ? frozenLevel : level
+        let displayed = (reduceMotion || frozen) ? frozenLevel : level
         // Perceptual mapping: RMS → lit fraction with a gentle log-ish curve.
         let lit = Int((min(1, displayed * 3.2)).squareRoot() * Float(barCount))
         HStack(spacing: 2) {

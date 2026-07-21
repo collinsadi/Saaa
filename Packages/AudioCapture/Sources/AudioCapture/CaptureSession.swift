@@ -34,6 +34,7 @@ public actor CaptureSession {
     private let stopFlag = StopFlag()
     /// Raw (undebounced) 'piro' state — gates the permission heuristic.
     private let targetOutputActive = BoolBox()
+    private let micMute = BoolBox()
 
     private var tapEngine: ProcessTapEngine?
     private var sckEngine: SCKEngine?
@@ -52,6 +53,12 @@ public actor CaptureSession {
     public private(set) var result: RecordingResult?
 
     public var isRunning: Bool { running }
+
+    /// Mutes/unmutes the "Me" lane mid-recording (records silence; the
+    /// timeline keeps running so alignment is preserved).
+    public nonisolated func setMicMuted(_ muted: Bool) {
+        micMute.set(muted)
+    }
 
     public init(configuration: CaptureConfiguration) {
         self.configuration = configuration
@@ -179,6 +186,7 @@ public actor CaptureSession {
         let micGap = micGap, sysGap = sysGap
         let micFormatBox = micFormatBox, sysFormatBox = sysFormatBox
         let stopFlag = stopFlag
+        let micMute = micMute
         let continuation = eventContinuation
         let backend = backend
         let targetOutputActive = targetOutputActive
@@ -199,6 +207,7 @@ public actor CaptureSession {
             func ensurePipelines() throws {
                 if micPipe == nil, let format = micFormatBox.current {
                     micPipe = try LanePipeline(ring: micRing, gap: micGap, fileURL: micURL, format: format)
+                    micPipe?.mute = micMute
                 }
                 if sysPipe == nil, let format = sysFormatBox.current {
                     sysPipe = try LanePipeline(ring: sysRing, gap: sysGap, fileURL: sysURL, format: format)

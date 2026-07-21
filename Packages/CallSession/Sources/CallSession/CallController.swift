@@ -99,6 +99,15 @@ public final class CallController {
         silencePromptVisible = false
     }
 
+    /// Whether the "Me" lane is currently muted (records silence).
+    public private(set) var micMuted = false
+
+    /// Mutes/unmutes the mic lane mid-recording.
+    public func setMicMuted(_ muted: Bool) {
+        micMuted = muted
+        captureSession?.setMicMuted(muted)
+    }
+
     /// The review surface was closed.
     public func closeReview() {
         if apply(.reviewClosed) {
@@ -142,6 +151,7 @@ public final class CallController {
     private func startRecording() async {
         levels = nil
         silencePromptVisible = false
+        micMuted = false
         watchdog = SilenceWatchdog()
 
         guard let target = resolveTarget() else {

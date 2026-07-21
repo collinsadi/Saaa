@@ -30,6 +30,14 @@ final class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// Observable outside-click counter (main-actor).
+@MainActor
+@Observable
+final class OutsideClickSignal {
+    private(set) var count = 0
+    func bump() { count += 1 }
+}
+
 /// Owns the island panel: creation, notch-centered placement, and
 /// re-measurement on display changes. All morphing happens SwiftUI-side —
 /// the panel frame never animates.
@@ -42,7 +50,12 @@ final class IslandController {
 
     private var panel: IslandPanel?
     private var screenObserver: NSObjectProtocol?
+    private var clickMonitor: Any?
     private let callController: CallController
+    /// Bumped on any click outside the panel — the root view observes it to
+    /// collapse the expanded tier ("Esc/outside collapses, recording
+    /// continues"). Global mouse monitors need no extra permission.
+    let outsideClick = OutsideClickSignal()
 
     init(callController: CallController) {
         self.callController = callController
@@ -54,6 +67,14 @@ final class IslandController {
             MainActor.assumeIsolated {
                 self?.install()
             }
+        }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [outsideClick] _ in
+            // Global monitor = clicks in OTHER apps; anything landing on the
+            // panel itself arrives via local events instead, so every global
+            // click is by definition outside the island.
+            outsideClick.bump()
         }
     }
 
@@ -69,7 +90,8 @@ final class IslandController {
 
         let panel = self.panel ?? IslandPanel(frame: frame)
         panel.setFrame(frame, display: true)
-        let root = IslandRootView(controller: callController, metrics: metrics)
+        let root = IslandRootView(
+            controller: callController, metrics: metrics, outsideClick: outsideClick)
             .saaaThemed(fixed: .dark)
         panel.contentView = NSHostingView(rootView: AnyView(root))
         panel.orderFrontRegardless()

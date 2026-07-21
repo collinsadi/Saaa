@@ -9,9 +9,12 @@ import SwiftUI
 struct IslandRootView: View {
     let controller: CallController
     let metrics: NotchMetrics
+    let outsideClick: OutsideClickSignal
 
     @Environment(\.saaa) private var saaa
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("showIsland") private var showIsland = true
+    @AppStorage("freezeMeters") private var freezeMeters = false
     @State private var isExpanded = false
     @State private var peekDismissed = false
     @State private var peekHovering = false
@@ -25,6 +28,12 @@ struct IslandRootView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .onChange(of: isRecording) { _, recording in
             if !recording { isExpanded = false }
+        }
+        .onChange(of: outsideClick.count) { _, _ in
+            guard isExpanded else { return }
+            withAnimation(Motion.collapse(reduceMotion: reduceMotion)) {
+                isExpanded = false
+            }
         }
         .onChange(of: isPeeking) { _, peeking in
             peekDismissed = false
@@ -47,6 +56,15 @@ struct IslandRootView: View {
 
     @ViewBuilder
     private var content: some View {
+        if !showIsland {
+            EmptyView()
+        } else {
+            tieredContent
+        }
+    }
+
+    @ViewBuilder
+    private var tieredContent: some View {
         switch controller.state {
         case .idle, .done:
             // Dormant: the bare notch IS the state. (No-notch Macs hide the
@@ -160,13 +178,24 @@ struct IslandRootView: View {
                 Spacer()
                 timerReadout(font: SaaaFont.readoutTimer)
             }
-            meterRow(label: "Me", level: controller.levels?.mic.rms ?? 0)
+            meterRow(label: "Me", level: controller.micMuted ? 0 : (controller.levels?.mic.rms ?? 0))
             meterRow(label: "Them", level: controller.levels?.system.rms ?? 0)
-            HStack {
+            HStack(spacing: Space.sm) {
+                Toggle(isOn: Binding(
+                    get: { controller.micMuted },
+                    set: { controller.setMicMuted($0) }
+                )) {
+                    Text("Mute my mic")
+                        .font(SaaaFont.body)
+                        .foregroundStyle(saaa.textSecondary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(saaa.tideFill)
+                Spacer()
                 Text("local · sealed")
                     .font(SaaaFont.monoCaption)
                     .foregroundStyle(saaa.textTertiary)
-                Spacer()
                 Button {
                     controller.toggle()
                 } label: {
@@ -207,7 +236,7 @@ struct IslandRootView: View {
                 .engravedLabelStyle()
                 .foregroundStyle(saaa.tideText)
                 .frame(width: 38, alignment: .leading)
-            LevelBars(level: level, barCount: 24)
+            LevelBars(level: level, barCount: 24, frozen: freezeMeters)
                 .frame(height: 14)
             Spacer(minLength: 0)
         }

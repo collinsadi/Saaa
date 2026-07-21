@@ -69,6 +69,10 @@ struct SaaaApp: App {
         MenuBarExtra("Saaa", systemImage: menuBarIcon) {
             SaaaMenu(controller: controller, harness: harness)
         }
+        Settings {
+            SaaaSettingsView(controller: controller)
+                .saaaThemed()
+        }
     }
 
     /// The always-visible recording indicator (consent-first): the icon
@@ -96,6 +100,10 @@ struct SaaaMenu: View {
             HarnessMenu(harness: harness)
         }
         Divider()
+        SettingsLink {
+            Text("Settings…")
+        }
+        .keyboardShortcut(",")
         Button("Quit Saaa") {
             NSApplication.shared.terminate(nil)
         }

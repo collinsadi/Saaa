@@ -70,6 +70,9 @@ final class LanePipeline {
 
     let ring: RingBuffer
     let gap: SilenceGapBox
+    /// When set and true, the lane records silence (mic mute). Levels and
+    /// timeline continue — only the content is zeroed.
+    var mute: BoolBox?
     private let writer: WavWriter
     private var converter: AVAudioConverter
     private var sourceFormat: AVAudioFormat
@@ -171,6 +174,9 @@ final class LanePipeline {
                 ring.read(into: $0.baseAddress!, count: $0.count)
             }
             guard samples > 0 else { break }
+            if mute?.get == true {
+                for index in 0..<samples { scratch[index] = 0 }
+            }
             let cycleLevels = scratch.withUnsafeBufferPointer {
                 AudioLevels(samples: $0.baseAddress!, count: samples)
             }
