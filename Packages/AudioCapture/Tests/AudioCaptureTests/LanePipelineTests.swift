@@ -85,6 +85,52 @@ import Testing
         #expect(tail.peak > 0.4)
     }
 
+    /// Regression: the built-in mic can expose its raw 3-mic array (3ch at
+    /// 44.1 kHz) — AVAudioConverter refuses 3→1, so the pipeline must
+    /// downmix to mono itself before rate conversion.
+    @Test func threeChannelMicArrayDownmixes() throws {
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let ring = RingBuffer(minimumCapacity: 1 << 19)
+        let pipeline = try LanePipeline(
+            ring: ring, gap: SilenceGapBox(), fileURL: url,
+            format: LaneFormat(channels: 3, sampleRate: 44_100))
+
+        // 1 s of DC 0.3 on all three channels → mono average 0.3.
+        let frames = 44_100
+        var chunk = [Float32](repeating: 0.3, count: 4_410 * 3)
+        for _ in 0..<10 {
+            chunk.withUnsafeBufferPointer { _ = ring.write($0.baseAddress!, count: $0.count) }
+            _ = try pipeline.drainCycle()
+        }
+        _ = frames
+        try pipeline.finish()
+
+        let file = try AVAudioFile(forReading: url)
+        #expect(abs(Int(file.length) - 16_000) < 32)
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+        try file.read(into: buffer)
+        // Steady-state samples must sit at the 0.3 average (skip converter ramp-in).
+        let mid = buffer.floatChannelData![0][Int(buffer.frameLength) / 2]
+        #expect(abs(mid - 0.3) < 0.02)
+    }
+
+    @Test func absurdFormatsAreRejectedUpFront() {
+        let ring = RingBuffer(minimumCapacity: 16)
+        #expect(throws: CaptureError.self) {
+            _ = try LanePipeline(
+                ring: ring, gap: SilenceGapBox(), fileURL: temporaryURL(),
+                format: LaneFormat(channels: 0, sampleRate: 44_100))
+        }
+        #expect(throws: CaptureError.self) {
+            _ = try LanePipeline(
+                ring: ring, gap: SilenceGapBox(), fileURL: temporaryURL(),
+                format: LaneFormat(channels: 1, sampleRate: 0))
+        }
+    }
+
     /// Reconfigure mid-stream (device change): output stays continuous.
     @Test func reconfigureKeepsWriterAndAppends() throws {
         let url = temporaryURL()

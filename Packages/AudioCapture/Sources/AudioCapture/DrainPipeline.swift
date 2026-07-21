@@ -76,6 +76,7 @@ final class LanePipeline {
     private var sourceBuffer: AVAudioPCMBuffer
     private var outputBuffer: AVAudioPCMBuffer
     private var scratch: [Float32]
+    private var monoScratch: [Float32]
     private var lastDropped = 0
     /// True until the lane sees its first non-zero sample (permission heuristic).
     private(set) var allZeroSoFar = true
@@ -89,12 +90,20 @@ final class LanePipeline {
     private var readCapacityFrames: Int
 
     /// Builds converter, scratch, and reusable buffers for `format`.
+    /// The converter is ALWAYS mono→mono — the drain downmixes N channels to
+    /// mono itself first, because AVAudioConverter refuses exotic channel
+    /// counts (observed live: the built-in mic exposing its raw 3-mic array
+    /// at 44.1 kHz) without an explicit channel map.
     private static func makeStages(
         _ format: LaneFormat
     ) throws -> (AVAudioFormat, AVAudioConverter, AVAudioPCMBuffer, AVAudioPCMBuffer, Int) {
+        guard format.channels >= 1, format.channels <= 16,
+              format.sampleRate >= 8_000, format.sampleRate <= 384_000 else {
+            throw CaptureError.unsupportedTapFormat
+        }
         guard let src = AVAudioFormat(
             commonFormat: .pcmFormatFloat32, sampleRate: format.sampleRate,
-            channels: AVAudioChannelCount(format.channels), interleaved: true)
+            channels: 1, interleaved: true)
         else { throw CaptureError.unsupportedTapFormat }
         guard let dst = AVAudioFormat(
             commonFormat: .pcmFormatInt16, sampleRate: Self.outputSampleRate,
@@ -120,6 +129,7 @@ final class LanePipeline {
         (sourceFormat, converter, sourceBuffer, outputBuffer, readCapacityFrames) =
             try Self.makeStages(format)
         scratch = [Float32](repeating: 0, count: readCapacityFrames * format.channels)
+        monoScratch = [Float32](repeating: 0, count: readCapacityFrames)
         do {
             self.writer = try WavWriter(url: fileURL, sampleRate: Int(Self.outputSampleRate))
         } catch {
@@ -137,6 +147,7 @@ final class LanePipeline {
         (sourceFormat, converter, sourceBuffer, outputBuffer, readCapacityFrames) =
             try Self.makeStages(newFormat)
         scratch = [Float32](repeating: 0, count: readCapacityFrames * newFormat.channels)
+        monoScratch = [Float32](repeating: 0, count: readCapacityFrames)
     }
 
     var fileURL: URL { writer.url }
@@ -152,7 +163,9 @@ final class LanePipeline {
         }
 
         var levels = AudioLevels.zero
-        let channels = Int(sourceFormat.channelCount)
+        // Ring content is interleaved at the LANE's channel count; the
+        // converter's sourceFormat is always mono (post-downmix).
+        let channels = format.channels
         while true {
             let samples = scratch.withUnsafeMutableBufferPointer {
                 ring.read(into: $0.baseAddress!, count: $0.count)
@@ -180,12 +193,32 @@ final class LanePipeline {
         return (levels, droppedDelta)
     }
 
-    /// Converts `frames` of `scratch` and appends to the WAV.
+    /// Downmixes `frames` of interleaved `scratch` to mono (channel average)
+    /// and pushes them through the rate converter into the WAV.
     private func convertAndAppend(frames: Int) throws {
         guard frames > 0 else { return }
-        scratch.withUnsafeBufferPointer { src in
-            sourceBuffer.floatChannelData![0].update(
-                from: src.baseAddress!, count: frames * Int(sourceFormat.channelCount))
+        let channels = format.channels
+        if channels == 1 {
+            scratch.withUnsafeBufferPointer { src in
+                sourceBuffer.floatChannelData![0].update(from: src.baseAddress!, count: frames)
+            }
+        } else {
+            let scale = 1 / Float32(channels)
+            scratch.withUnsafeBufferPointer { src in
+                monoScratch.withUnsafeMutableBufferPointer { dst in
+                    for frame in 0..<frames {
+                        var sum: Float32 = 0
+                        let base = frame * channels
+                        for channel in 0..<channels {
+                            sum += src[base + channel]
+                        }
+                        dst[frame] = sum * scale
+                    }
+                }
+            }
+            monoScratch.withUnsafeBufferPointer { src in
+                sourceBuffer.floatChannelData![0].update(from: src.baseAddress!, count: frames)
+            }
         }
         sourceBuffer.frameLength = AVAudioFrameCount(frames)
         try runConverter(endOfStream: false)
