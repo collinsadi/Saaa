@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 import Foundation
 
@@ -162,5 +163,46 @@ public enum AudioProcessDirectory {
                 bundleID: HAL.readString(objectID, kAudioProcessPropertyBundleID),
                 isRunningOutput: running != 0)
         }
+    }
+
+    /// One pickable app, aggregating every HAL client process that belongs to
+    /// it (the app process itself and/or its helpers).
+    public struct AppEntry: Sendable, Identifiable {
+        /// The app's own PID — the value to put in `CaptureTarget.process`.
+        public let id: pid_t
+        public let name: String
+        /// True if any of the app's processes is currently emitting audio.
+        public let isPlayingAudio: Bool
+    }
+
+    /// App-level view of ``snapshot()``: every HAL client process is
+    /// attributed to its nearest ancestor that is a regular app (browsers and
+    /// conferencing apps emit audio from helper processes — the user must see
+    /// "Chrome", not "Chrome Helper (Renderer)"). HAL clients with no app
+    /// ancestor (daemons) appear under their own BSD name.
+    @MainActor
+    public static func appLevelSnapshot(excluding excludedPID: pid_t) throws -> [AppEntry] {
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy != .prohibited }
+        var aggregated: [pid_t: (name: String, playing: Bool)] = [:]
+
+        for entry in try snapshot() where entry.pid != excludedPID {
+            let owner = apps.first { app in
+                ProcessTree.isDescendant(entry.pid, of: app.processIdentifier)
+            }
+            let key = owner?.processIdentifier ?? entry.pid
+            guard key != excludedPID else { continue }
+            let name = owner?.localizedName
+                ?? ProcessTree.name(of: entry.pid)
+                ?? entry.bundleID
+                ?? "pid \(entry.pid)"
+            let existing = aggregated[key]
+            aggregated[key] = (
+                name: existing?.name ?? name,
+                playing: (existing?.playing ?? false) || entry.isRunningOutput)
+        }
+        return aggregated
+            .map { AppEntry(id: $0.key, name: $0.value.name, isPlayingAudio: $0.value.playing) }
+            .sorted { ($0.isPlayingAudio ? 0 : 1, $0.name) < ($1.isPlayingAudio ? 0 : 1, $1.name) }
     }
 }

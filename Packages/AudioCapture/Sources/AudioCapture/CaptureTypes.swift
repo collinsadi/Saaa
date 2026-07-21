@@ -9,10 +9,21 @@ public enum CaptureBackend: Sendable, Equatable {
     case screenCaptureKit
 }
 
+/// What the system ("Them") lane records.
+public enum CaptureTarget: Sendable, Equatable {
+    /// One app's audio — the given PID plus every descendant helper process
+    /// that is a Core Audio client (browsers and some conferencing apps emit
+    /// audio from helpers, not the app process itself).
+    case process(pid_t)
+    /// Everything the system plays (global tap). Debug/diagnostic target; no
+    /// ScreenCaptureKit fallback and no process-exit auto-stop.
+    case allSystemAudio
+}
+
 /// Immutable description of one capture run.
 public struct CaptureConfiguration: Sendable {
-    /// The conferencing process whose output is recorded as the "Them" lane.
-    public var targetPID: pid_t
+    /// What the system lane records.
+    public var target: CaptureTarget
     /// Microphone device; `nil` uses the default input at `start()`.
     public var micDeviceID: AudioObjectID?
     /// Directory receiving `mic.wav` and `system.wav` (created if missing).
@@ -22,12 +33,12 @@ public struct CaptureConfiguration: Sendable {
     public var preferredBackend: CaptureBackend?
 
     public init(
-        targetPID: pid_t,
+        target: CaptureTarget,
         outputDirectory: URL,
         micDeviceID: AudioObjectID? = nil,
         preferredBackend: CaptureBackend? = nil
     ) {
-        self.targetPID = targetPID
+        self.target = target
         self.outputDirectory = outputDirectory
         self.micDeviceID = micDeviceID
         self.preferredBackend = preferredBackend
@@ -129,5 +140,8 @@ public enum CaptureError: Error {
     case unsupportedTapFormat
     case notRunning
     case alreadyRunning
+    /// The requested backend cannot serve this target (e.g. ScreenCaptureKit
+    /// has no global-audio mode in Saaa; `.allSystemAudio` is tap-only).
+    case backendUnavailable
     case fileError(underlying: Error)
 }

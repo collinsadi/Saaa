@@ -25,7 +25,7 @@ final class ProcessTapEngine {
 
     private static let log = Logger(subsystem: "dev.collinsadi.saaa", category: "ProcessTapEngine")
 
-    private let targetPID: pid_t
+    private let target: CaptureTarget
     private let micRing: RingBuffer
     private let sysRing: RingBuffer
     private let anchor: HostTimeAnchor
@@ -42,16 +42,34 @@ final class ProcessTapEngine {
     /// The mic device the aggregate was built around (pinned for the run).
     private(set) var micDeviceID = AudioObjectID(kAudioObjectUnknown)
 
-    init(targetPID: pid_t, micRing: RingBuffer, sysRing: RingBuffer, anchor: HostTimeAnchor) {
-        self.targetPID = targetPID
+    init(target: CaptureTarget, micRing: RingBuffer, sysRing: RingBuffer, anchor: HostTimeAnchor) {
+        self.target = target
         self.micRing = micRing
         self.sysRing = sysRing
         self.anchor = anchor
     }
 
-    /// Whether the target process still has a HAL client object.
+    /// Whether the target still exists (always true for the global tap).
     var isTargetProcessAlive: Bool {
-        HAL.processObject(for: targetPID) != nil
+        switch target {
+        case .allSystemAudio:
+            return true
+        case .process(let pid):
+            if HAL.processObject(for: pid) != nil { return true }
+            // The app process may never have been a HAL client — it counts as
+            // alive while any of its helpers still is.
+            let members = (try? AudioProcessDirectory.snapshot()) ?? []
+            return members.contains { ProcessTree.isDescendant($0.pid, of: pid) }
+        }
+    }
+
+    /// Resolves the HAL process objects a `.process` target actually covers:
+    /// the PID itself plus every descendant helper that is a HAL client.
+    private static func tapMembers(for pid: pid_t) throws -> [AudioObjectID] {
+        let entries = try AudioProcessDirectory.snapshot()
+        let members = entries.filter { ProcessTree.isDescendant($0.pid, of: pid) }
+        guard !members.isEmpty else { throw CaptureError.targetProcessNotFound(pid) }
+        return members.map(\.id)
     }
 
     /// Runs contract §2 setup steps 2–12. On any failure, unwinds whatever was
@@ -72,11 +90,18 @@ final class ProcessTapEngine {
         preferredMicDeviceID: AudioObjectID?,
         onSignal: @escaping @Sendable (TapEngineSignal) -> Void
     ) throws {
-        // Step 2 — resolve the target's HAL process object.
-        guard let processObject = HAL.processObject(for: targetPID) else {
-            throw CaptureError.targetProcessNotFound(targetPID)
+        // Step 2 — resolve the HAL process objects the tap covers.
+        let tapTargets: [AudioObjectID]
+        switch target {
+        case .process(let pid):
+            tapTargets = try Self.tapMembers(for: pid)
+            // Listener anchor: the app's own object if it is a HAL client,
+            // else the first helper.
+            processObjectID = HAL.processObject(for: pid) ?? tapTargets[0]
+        case .allSystemAudio:
+            tapTargets = []
+            processObjectID = AudioObjectID(kAudioObjectUnknown)
         }
-        processObjectID = processObject
 
         // Step 3 — resolve and pin the mic device.
         guard let mic = preferredMicDeviceID ?? HAL.defaultInputDevice(),
@@ -86,8 +111,15 @@ final class ProcessTapEngine {
         micDeviceID = mic
 
         // Step 4 — tap description: stereo mixdown, private, user keeps
-        // hearing the call, process-scoped (follows the process across devices).
-        let description = CATapDescription(stereoMixdownOfProcesses: [processObject])
+        // hearing the call, process-scoped (follows processes across devices).
+        // Global target = tap everything (exclude-nothing variant).
+        let description: CATapDescription
+        switch target {
+        case .process:
+            description = CATapDescription(stereoMixdownOfProcesses: tapTargets)
+        case .allSystemAudio:
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        }
         description.name = "Saaa-tap"
         description.uuid = UUID()
         description.isPrivate = true
@@ -224,7 +256,6 @@ final class ProcessTapEngine {
 
     private func registerListeners(onSignal: @escaping @Sendable (TapEngineSignal) -> Void) {
         let systemObject = AudioObjectID(kAudioObjectSystemObject)
-        let targetPID = self.targetPID
 
         listen(on: systemObject, selector: kAudioHardwarePropertyProcessObjectList) { _ in
             onSignal(.processListChanged)
@@ -232,12 +263,13 @@ final class ProcessTapEngine {
         listen(on: systemObject, selector: kAudioHardwarePropertyDefaultInputDevice) { _ in
             onSignal(.defaultInputChanged)
         }
-        listen(on: processObjectID, selector: kAudioProcessPropertyIsRunningOutput) { object in
-            var running: UInt32 = 0
-            _ = HAL.read(object, kAudioProcessPropertyIsRunningOutput, into: &running)
-            onSignal(.targetRunningOutputChanged(running != 0))
+        if processObjectID != kAudioObjectUnknown {
+            listen(on: processObjectID, selector: kAudioProcessPropertyIsRunningOutput) { object in
+                var running: UInt32 = 0
+                _ = HAL.read(object, kAudioProcessPropertyIsRunningOutput, into: &running)
+                onSignal(.targetRunningOutputChanged(running != 0))
+            }
         }
-        _ = targetPID // captured for clarity; PID re-checks happen in the session
         listen(on: aggregateID, selector: kAudioDevicePropertyDeviceIsAlive) { object in
             var alive: UInt32 = 1
             _ = HAL.read(object, kAudioDevicePropertyDeviceIsAlive, into: &alive)

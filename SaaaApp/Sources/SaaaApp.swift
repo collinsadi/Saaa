@@ -43,25 +43,27 @@ final class CaptureHarness {
     private(set) var state: State = .idle
 
     struct Target: Identifiable {
-        let id: pid_t
+        let id: pid_t // -1 = all system audio
         let name: String
         let isPlayingAudio: Bool
+
+        var captureTarget: CaptureTarget {
+            id == -1 ? .allSystemAudio : .process(id)
+        }
+
+        static let allSystemAudio = Target(
+            id: -1, name: "All System Audio (debug)", isPlayingAudio: false)
     }
 
-    /// Processes the HAL currently knows about, newest audio-active first.
-    /// Cheap synchronous property reads — safe to call when the menu opens.
+    /// Pickable apps (helper processes attributed to their app), audio-active
+    /// first, plus the global-tap debug entry. Cheap synchronous property
+    /// reads — safe to call when the menu opens.
     func availableTargets() -> [Target] {
-        let entries = (try? AudioProcessDirectory.snapshot()) ?? []
-        var seen = Set<pid_t>()
-        return entries.compactMap { entry -> Target? in
-            guard entry.pid != ProcessInfo.processInfo.processIdentifier,
-                  !seen.contains(entry.pid),
-                  let app = NSRunningApplication(processIdentifier: entry.pid),
-                  let name = app.localizedName else { return nil }
-            seen.insert(entry.pid)
-            return Target(id: entry.pid, name: name, isPlayingAudio: entry.isRunningOutput)
+        let apps = (try? AudioProcessDirectory.appLevelSnapshot(
+            excluding: ProcessInfo.processInfo.processIdentifier)) ?? []
+        return [.allSystemAudio] + apps.map {
+            Target(id: $0.id, name: $0.name, isPlayingAudio: $0.isPlayingAudio)
         }
-        .sorted { ($0.isPlayingAudio ? 0 : 1, $0.name) < ($1.isPlayingAudio ? 0 : 1, $1.name) }
     }
 
     func record(target: Target, seconds: Int = 10) {
@@ -81,7 +83,8 @@ final class CaptureHarness {
             .appendingPathComponent("Saaa/Harness/\(stamp)", isDirectory: true)
 
         let session = CaptureSession(
-            configuration: CaptureConfiguration(targetPID: target.id, outputDirectory: directory))
+            configuration: CaptureConfiguration(
+                target: target.captureTarget, outputDirectory: directory))
         let log = Logger(subsystem: "dev.collinsadi.saaa", category: "Harness")
         let monitor = Task {
             for await event in session.events {

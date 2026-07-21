@@ -93,6 +93,7 @@ public actor CaptureSession {
                     switch error {
                     case .tapCreationFailed, .aggregateCreationFailed, .ioProcFailed,
                          .layoutAmbiguous, .unsupportedTapFormat:
+                        guard case .process = configuration.target else { throw error }
                         Self.log.warning("tap path failed (\(String(describing: error), privacy: .public)); falling back to ScreenCaptureKit")
                         try await startSCK()
                     default:
@@ -112,7 +113,7 @@ public actor CaptureSession {
 
     private func startTap() throws {
         let engine = ProcessTapEngine(
-            targetPID: configuration.targetPID,
+            target: configuration.target,
             micRing: micRing, sysRing: sysRing, anchor: anchor)
         try engine.setup(preferredMicDeviceID: configuration.micDeviceID) { [weak self] signal in
             guard let self else { return }
@@ -123,11 +124,20 @@ public actor CaptureSession {
         sysFormatBox.publish(LaneFormat(channels: layout.tapChannels, sampleRate: layout.tapSampleRate))
         tapEngine = engine
         backend = .processTap
+        if case .allSystemAudio = configuration.target {
+            // No 'piro' listener exists for a global tap; arm the all-zero
+            // permission heuristic unconditionally (system audio is always
+            // "active enough" system-wide during a debug capture).
+            targetOutputActive.set(true)
+        }
     }
 
     private func startSCK() async throws {
+        guard case .process(let targetPID) = configuration.target else {
+            throw CaptureError.backendUnavailable
+        }
         let engine = SCKEngine(
-            targetPID: configuration.targetPID,
+            targetPID: targetPID,
             micRing: micRing, sysRing: sysRing,
             micGap: micGap, sysGap: sysGap,
             micFormatBox: micFormatBox, sysFormatBox: sysFormatBox
@@ -140,7 +150,7 @@ public actor CaptureSession {
         backend = .screenCaptureKit
 
         // SCK has no HAL process object — watch NSWorkspace for target exit.
-        let pid = configuration.targetPID
+        let pid = targetPID
         terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil, queue: nil
