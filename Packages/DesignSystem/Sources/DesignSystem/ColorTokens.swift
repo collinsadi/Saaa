@@ -107,6 +107,14 @@ public struct SaaaPalette: Sendable, Equatable {
     }
 }
 
+extension SaaaPalette {
+    /// The island's surface: TRUE black, matching the hardware notch cutout
+    /// exactly so tiers read as the notch itself morphing (user direction
+    /// 2026-07-21 — deliberately deeper than surface/base #14171A, island
+    /// only; window surfaces keep the Field Instrument grays).
+    public static let islandSurface = Color(hex: 0x000000)
+}
+
 extension Color {
     /// Token constructor — internal to the design system; components never
     /// call this directly.

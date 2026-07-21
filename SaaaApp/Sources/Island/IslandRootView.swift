@@ -6,6 +6,27 @@ import SwiftUI
 /// hardware), opaque, one kinetic element (the meters). Tiers:
 /// dormant (bare notch) → armed → recording compact ⇄ expanded → processing
 /// → peek → afterglow, plus error. Click expands; hover never does.
+/// Hairline on the island's sides and bottom ONLY — no top edge, so the
+/// island reads as attached to (growing out of) the notch.
+private struct IslandOpenBorder: Shape {
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - cornerRadius))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + cornerRadius, y: rect.maxY),
+            control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.maxY - cornerRadius),
+            control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return path
+    }
+}
+
 struct IslandRootView: View {
     let controller: CallController
     let metrics: NotchMetrics
@@ -23,9 +44,14 @@ struct IslandRootView: View {
     var body: some View {
         VStack(spacing: 0) {
             content
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .scale(scale: 0.4, anchor: .top).combined(with: .opacity))
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+        .animation(Motion.expand(reduceMotion: reduceMotion), value: tierID)
         .onChange(of: isRecording) { _, recording in
             if !recording { isExpanded = false }
         }
@@ -39,6 +65,19 @@ struct IslandRootView: View {
             peekDismissed = false
             guard peeking else { return }
             schedulePeekRetract()
+        }
+    }
+
+    /// Coarse tier discriminator — drives morph animations without
+    /// retriggering on timer/level updates.
+    private var tierID: String {
+        switch controller.state {
+        case .idle, .done: "dormant"
+        case .armed: "armed"
+        case .recording: isExpanded ? "rec-expanded" : "rec-compact"
+        case .processing: "processing"
+        case .review: peekDismissed ? "afterglow" : "peek"
+        case .error: "error"
         }
     }
 
@@ -151,13 +190,12 @@ struct IslandRootView: View {
         .frame(height: barHeight)
         .background(
             UnevenRoundedRectangle(
-                bottomLeadingRadius: Radius.lg, bottomTrailingRadius: Radius.lg)
-                .fill(saaa.surfaceBase))
+                bottomLeadingRadius: Size.Island.compactRadius,
+                bottomTrailingRadius: Size.Island.compactRadius)
+                .fill(SaaaPalette.islandSurface))
         .overlay(
-            UnevenRoundedRectangle(
-                bottomLeadingRadius: Radius.lg, bottomTrailingRadius: Radius.lg)
-                .strokeBorder(saaa.borderHairline, lineWidth: 1))
-        .animation(Motion.standard, value: controller.state)
+            IslandOpenBorder(cornerRadius: Size.Island.compactRadius)
+                .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
     }
 
     /// Tall enough to clear the notch on any model; below the menu bar on
@@ -214,14 +252,12 @@ struct IslandRootView: View {
         .frame(width: Size.Island.expandedWidth)
         .background(
             UnevenRoundedRectangle(
-                topLeadingRadius: Radius.lg, bottomLeadingRadius: Radius.xl,
-                bottomTrailingRadius: Radius.xl, topTrailingRadius: Radius.lg)
-                .fill(saaa.surfaceBase))
+                bottomLeadingRadius: Size.Island.expandedRadius,
+                bottomTrailingRadius: Size.Island.expandedRadius)
+                .fill(SaaaPalette.islandSurface))
         .overlay(
-            UnevenRoundedRectangle(
-                topLeadingRadius: Radius.lg, bottomLeadingRadius: Radius.xl,
-                bottomTrailingRadius: Radius.xl, topTrailingRadius: Radius.lg)
-                .strokeBorder(saaa.borderHairline, lineWidth: 1))
+            IslandOpenBorder(cornerRadius: Size.Island.expandedRadius)
+                .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(Motion.collapse(reduceMotion: reduceMotion)) {
@@ -278,14 +314,12 @@ struct IslandRootView: View {
         .frame(width: Size.Island.expandedWidth)
         .background(
             UnevenRoundedRectangle(
-                topLeadingRadius: Radius.lg, bottomLeadingRadius: Radius.xl,
-                bottomTrailingRadius: Radius.xl, topTrailingRadius: Radius.lg)
-                .fill(saaa.surfaceBase))
+                bottomLeadingRadius: Size.Island.expandedRadius,
+                bottomTrailingRadius: Size.Island.expandedRadius)
+                .fill(SaaaPalette.islandSurface))
         .overlay(
-            UnevenRoundedRectangle(
-                topLeadingRadius: Radius.lg, bottomLeadingRadius: Radius.xl,
-                bottomTrailingRadius: Radius.xl, topTrailingRadius: Radius.lg)
-                .strokeBorder(saaa.borderHairline, lineWidth: 1))
+            IslandOpenBorder(cornerRadius: Size.Island.expandedRadius)
+                .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
         .onHover { peekHovering = $0 } // dwell timer suspends while hovered
     }
 

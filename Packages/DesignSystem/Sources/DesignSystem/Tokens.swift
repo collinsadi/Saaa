@@ -32,7 +32,8 @@ public enum Size {
     public static let lampSlot: CGFloat = 12
     public static let lampGlyph: CGFloat = 10
 
-    /// Island metrics (size/island-*, verified against the hi-fi frames).
+    /// Island metrics (size/island-*, verified against the hi-fi frames;
+    /// corner radii deepened per user direction 2026-07-21).
     public enum Island {
         /// Compact bar height — extends a hairline's breadth below the notch.
         public static let barHeight: CGFloat = 38
@@ -42,16 +43,22 @@ public enum Size {
         public static let expandedWidth: CGFloat = 400
         /// Meter bar strip height inside the flanks.
         public static let meterHeight: CGFloat = 8
+        /// Compact bar bottom corners.
+        public static let compactRadius: CGFloat = 14
+        /// Expanded panel bottom corners.
+        public static let expandedRadius: CGFloat = 22
     }
 }
 
 /// Motion tokens (motion/*) — from the approved motion spec frame.
 /// One kinetic element rule: only the level meter moves while recording.
 public enum Motion {
-    /// Expand (pill → panel): shape leads, content follows `contentLag` later.
-    public static let springExpand = Animation.spring(response: 0.42, dampingFraction: 0.85)
+    /// Expand (pill → panel): shape leads, content follows `contentLag`
+    /// later. Retuned 2026-07-21 (user direction): slower and silkier than
+    /// the original 0.42 — fluid, never abrupt.
+    public static let springExpand = Animation.spring(response: 0.55, dampingFraction: 0.86)
     /// Collapse (panel → pill): critically damped — exits NEVER bounce.
-    public static let springCollapse = Animation.spring(response: 0.45, dampingFraction: 1.0)
+    public static let springCollapse = Animation.spring(response: 0.52, dampingFraction: 1.0)
     /// Standard state swap (compact crossfades), 200 ms.
     public static let standard = Animation.timingCurve(0.4, 0, 0.2, 1, duration: 0.2)
     /// Fast micro-interactions (hover bloom, afterglow), 120 ms.
