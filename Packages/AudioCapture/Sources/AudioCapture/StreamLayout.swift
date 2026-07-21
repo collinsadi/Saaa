@@ -89,12 +89,18 @@ struct StreamLayout: Sendable, Equatable {
         }
         let (micIndex, tapIndex) = try resolve(
             inputStreams: infos, tapChannels: Int(tapFormat.mChannelsPerFrame))
+        // Delivery rate is the AGGREGATE's nominal rate, not each stream's
+        // advertised virtual format: drift compensation resamples every input
+        // onto the aggregate clock. (Observed live: a tap stream advertising
+        // 44.1 kHz while the aggregate delivered 48 kHz — trusting the stream
+        // rate stretched the system lane by 8.8%.)
+        let aggregateRate = HAL.nominalSampleRate(aggregateID)
         return StreamLayout(
             micBufferIndex: micIndex,
             tapBufferIndex: tapIndex,
             micChannels: infos[micIndex].channels,
             tapChannels: infos[tapIndex].channels,
-            micSampleRate: infos[micIndex].sampleRate,
-            tapSampleRate: infos[tapIndex].sampleRate)
+            micSampleRate: aggregateRate ?? infos[micIndex].sampleRate,
+            tapSampleRate: aggregateRate ?? infos[tapIndex].sampleRate)
     }
 }

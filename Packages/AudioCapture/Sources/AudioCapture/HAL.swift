@@ -114,6 +114,15 @@ enum HAL {
         let status = read(streamID, kAudioStreamPropertyVirtualFormat, into: &asbd)
         return status == noErr ? asbd : nil
     }
+
+    /// A device's nominal sample rate — for an aggregate, the rate every
+    /// input stream actually delivers at (drift compensation resamples
+    /// sub-streams onto the aggregate clock).
+    static func nominalSampleRate(_ deviceID: AudioObjectID) -> Double? {
+        var rate: Float64 = 0
+        let status = read(deviceID, kAudioDevicePropertyNominalSampleRate, into: &rate)
+        return status == noErr && rate > 0 ? rate : nil
+    }
 }
 
 /// A HAL property read failure.
