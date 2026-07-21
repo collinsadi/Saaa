@@ -14,16 +14,22 @@ import Transcription
 
 /// Saaa — every call, in context.
 ///
-/// Phase-2 state: the menu-bar placeholder now hosts the internal audio
-/// capture harness used to validate the process-tap engine on real calls.
-/// The notch island and real windows arrive in Phase 9.
+/// Phase-4 state (MVP): global hotkey → target resolution → two-lane capture
+/// → whisper transcription → Me/Them transcript in a review window. The
+/// design-system UI and notch island arrive in Phase 9.
 @main
 struct SaaaApp: App {
     @State private var harness = CaptureHarness()
+    @State private var controller: CallController
+    @State private var reviewPresenter = ReviewWindowPresenter()
+    @State private var hotkey: HotkeyMonitor?
 
     init() {
+        let controller = CallController()
+        _controller = State(initialValue: controller)
+
         // Headless capture self-test (dev tooling): `open Saaa.app --args
-        // --selftest` records 5 s of all system audio, writes the usual
+        // --selftest [--tap-only|--sck]` records 5 s, writes the usual
         // WAVs + diagnostics.txt, then quits.
         if CommandLine.arguments.contains("--tap-only") {
             AudioCaptureModule.debugTapOnlyComposition = true
@@ -33,7 +39,6 @@ struct SaaaApp: App {
             let forceSCK = CommandLine.arguments.contains("--sck")
             Task { @MainActor in
                 if forceSCK { harness.forcedBackend = .screenCaptureKit }
-                // SCK needs an app target; tap path exercises the global tap.
                 let target: CaptureHarness.Target
                 if forceSCK, let running = harness.availableTargets().first(where: { $0.id > 0 }) {
                     target = running
@@ -50,9 +55,85 @@ struct SaaaApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Saaa", systemImage: "waveform") {
+        MenuBarExtra("Saaa", systemImage: menuBarIcon) {
+            SaaaMenu(controller: controller, harness: harness)
+                .onAppear { wireUpOnce() }
+        }
+    }
+
+    /// The always-visible recording indicator (consent-first): the icon
+    /// changes whenever capture is live or busy.
+    private var menuBarIcon: String {
+        switch controller.state {
+        case .recording: "record.circle"
+        case .armed, .processing: "waveform.badge.magnifyingglass"
+        default: "waveform"
+        }
+    }
+
+    private func wireUpOnce() {
+        guard hotkey == nil else { return }
+        let controller = controller
+        let presenter = reviewPresenter
+        controller.onReview = { transcript in
+            presenter.show(transcript, sessionDirectory: controller.sessionDirectory) {
+                controller.closeReview()
+            }
+        }
+        hotkey = HotkeyMonitor { controller.toggle() }
+    }
+}
+
+/// The Phase-4 menu: session state + Start/Stop, the silence prompt, and the
+/// capture harness tucked into a debug submenu.
+struct SaaaMenu: View {
+    let controller: CallController
+    let harness: CaptureHarness
+
+    var body: some View {
+        statusSection
+        Divider()
+        Menu("Capture Harness") {
             HarnessMenu(harness: harness)
         }
+        Divider()
+        Button("Quit Saaa") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q")
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        switch controller.state {
+        case .idle, .done:
+            Button("Start Recording (⌥⌘R)") { controller.toggle() }
+        case .armed:
+            Text("Starting…")
+        case .recording:
+            if let levels = controller.levels {
+                Text("Recording \(Duration.seconds(levels.time).formatted(.time(pattern: .minuteSecond)))  Me \(bar(levels.mic.rms))  Them \(bar(levels.system.rms))")
+            } else {
+                Text("Recording…")
+            }
+            if controller.silencePromptVisible {
+                Button("Still recording? — Keep going") { controller.dismissSilencePrompt() }
+            }
+            Button("Stop Recording (⌥⌘R)") { controller.toggle() }
+        case .processing:
+            Text(controller.processingDetail.isEmpty ? "Processing…" : controller.processingDetail)
+        case .review:
+            Text("Transcript open for review")
+        case .error(let message):
+            Text("Error: \(message)").lineLimit(4)
+            Button("Try Again (⌥⌘R)") { controller.toggle() }
+        }
+    }
+
+    private func bar(_ rms: Float) -> String {
+        let blocks = ["▁", "▂", "▃", "▅", "▆", "█"]
+        let level = min(5, Int(rms * 12))
+        return blocks[level]
     }
 }
 
