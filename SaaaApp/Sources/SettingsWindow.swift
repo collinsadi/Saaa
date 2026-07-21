@@ -17,7 +17,7 @@ struct SaaaSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.md) {
-                BrandMark(size: 22)
+                BrandMark(size: 16)
                 Text("Saaa")
                     .font(SaaaFont.title2)
                     .foregroundStyle(saaa.textPrimary)

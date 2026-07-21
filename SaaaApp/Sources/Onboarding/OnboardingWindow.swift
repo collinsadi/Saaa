@@ -56,7 +56,7 @@ private struct OnboardingView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
             HStack(spacing: Space.md) {
-                BrandMark(size: 30)
+                BrandMark(size: 22)
                 Text("Saaa")
                     .font(SaaaFont.title2)
                     .foregroundStyle(saaa.textPrimary)
@@ -198,7 +198,7 @@ private struct OnboardingView: View {
             } label: {
                 HStack(spacing: Space.sm) {
                     if model.step == model.stepCount - 1 {
-                        BrandMark(size: 16, ink: saaa.textOnAccent, ember: saaa.textOnAccent)
+                        BrandMark(size: 13, ink: saaa.textOnAccent, ember: saaa.textOnAccent)
                         Text("Start using Saaa")
                     } else {
                         Text("Continue")

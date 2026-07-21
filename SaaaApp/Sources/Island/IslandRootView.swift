@@ -294,7 +294,7 @@ struct IslandRootView: View {
     private var welcomePanel: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             HStack(spacing: Space.md) {
-                BrandMark(size: 26)
+                BrandMark(size: 18)
                 Text("Saaa lives here")
                     .font(SaaaFont.headline)
                     .foregroundStyle(saaa.textPrimary)

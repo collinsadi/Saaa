@@ -18,27 +18,30 @@ public struct BrandMark: View {
     }
 
     public var body: some View {
-        let unit = size / 96
+        // Tight bounds: the mark's content is 60×64 in source units, drawn
+        // edge to edge so it aligns optically with neighboring text (no
+        // phantom padding). `size` is the mark's HEIGHT.
+        let unit = size / 64
         let inkColor = ink ?? saaa.textPrimary
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 8 * unit)
                 .fill(inkColor)
                 .frame(width: 44 * unit, height: 16 * unit)
-                .offset(x: 34 * unit, y: 16 * unit)
+                .offset(x: 16 * unit, y: 0)
             RoundedRectangle(cornerRadius: 8 * unit)
                 .fill(inkColor)
                 .frame(width: 60 * unit, height: 16 * unit)
-                .offset(x: 18 * unit, y: 40 * unit)
+                .offset(x: 0, y: 24 * unit)
             RoundedRectangle(cornerRadius: 8 * unit)
                 .fill(inkColor)
                 .frame(width: 40 * unit, height: 16 * unit)
-                .offset(x: 18 * unit, y: 64 * unit)
+                .offset(x: 0, y: 48 * unit)
             Circle()
                 .fill(ember ?? saaa.emberLamp)
                 .frame(width: 16 * unit, height: 16 * unit)
-                .offset(x: 62 * unit, y: 64 * unit)
+                .offset(x: 44 * unit, y: 48 * unit)
         }
-        .frame(width: size, height: size)
+        .frame(width: 60 * unit, height: size)
         .accessibilityHidden(true)
     }
 }

@@ -117,7 +117,7 @@ private struct HistoryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(spacing: Space.sm) {
-                    BrandMark(size: 18)
+                    BrandMark(size: 13)
                     Text("Calls")
                         .font(SaaaFont.headline)
                         .foregroundStyle(saaa.textPrimary)
