@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.png">
-    <img src=".github/assets/lockup-light.png" alt="Saaa" width="240">
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/lockup-dark.svg">
+    <img src=".github/assets/lockup-light.svg" alt="Saaa" width="240">
   </picture>
 </p>
 

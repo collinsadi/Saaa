@@ -1,0 +1,7 @@
+<svg width="212" height="64" viewBox="0 0 212 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="16" width="44" height="16" rx="8" fill="#E9EBED"/>
+  <rect y="24" width="60" height="16" rx="8" fill="#E9EBED"/>
+  <rect y="48" width="40" height="16" rx="8" fill="#E9EBED"/>
+  <circle cx="52" cy="56" r="8" fill="#FF9F0A"/>
+  <text x="78" y="53" font-family="-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="58" font-weight="700" letter-spacing="-1" fill="#E9EBED">Saaa</text>
+</svg>
