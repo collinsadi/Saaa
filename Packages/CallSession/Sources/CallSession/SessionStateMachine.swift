@@ -34,6 +34,38 @@ public enum SessionEvent: Sendable, Equatable {
     case reset
 }
 
+extension SessionState {
+    /// Content-free label for privacy-safe logging (`review` carries the
+    /// whole transcript — it must NEVER be stringified into logs).
+    public var logLabel: String {
+        switch self {
+        case .idle: "idle"
+        case .armed: "armed"
+        case .recording: "recording"
+        case .processing: "processing"
+        case .review: "review"
+        case .done: "done"
+        case .error: "error"
+        }
+    }
+}
+
+extension SessionEvent {
+    /// Content-free label for privacy-safe logging.
+    public var logLabel: String {
+        switch self {
+        case .hotkeyPressed: "hotkeyPressed"
+        case .captureStarted: "captureStarted"
+        case .captureFailed: "captureFailed"
+        case .captureStopped: "captureStopped"
+        case .transcriptReady: "transcriptReady"
+        case .transcriptionFailed: "transcriptionFailed"
+        case .reviewClosed: "reviewClosed"
+        case .reset: "reset"
+        }
+    }
+}
+
 /// Pure transition function — the unit-tested heart of the lifecycle.
 public enum SessionStateMachine {
 

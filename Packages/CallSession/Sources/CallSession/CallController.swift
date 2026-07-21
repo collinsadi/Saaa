@@ -69,10 +69,10 @@ public final class CallController {
     @discardableResult
     private func apply(_ event: SessionEvent) -> Bool {
         guard let next = SessionStateMachine.reduce(state, event) else {
-            Self.log.info("ignored \(String(describing: event), privacy: .public) in \(String(describing: self.state), privacy: .public)")
+            Self.log.info("ignored \(event.logLabel, privacy: .public) in \(self.state.logLabel, privacy: .public)")
             return false
         }
-        Self.log.info("\(String(describing: self.state), privacy: .public) → \(String(describing: next), privacy: .public)")
+        Self.log.info("\(self.state.logLabel, privacy: .public) → \(next.logLabel, privacy: .public) (\(event.logLabel, privacy: .public))")
         state = next
         return true
     }
