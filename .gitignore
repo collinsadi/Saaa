@@ -23,3 +23,6 @@ xcuserdata/
 ARCHITECTURE.md
 docs/
 dist/
+
+# Design playground (HTML+Tailwind mirror of the app, local only)
+theme/
