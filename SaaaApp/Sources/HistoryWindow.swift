@@ -1,3 +1,4 @@
+import AgentBridge
 import AppKit
 import ClaudeBridge
 import Core
@@ -253,7 +254,7 @@ private struct HistoryView: View {
                 Text(URL(filePath: path).lastPathComponent)
                     .font(SaaaFont.bodyEmphasis)
                     .foregroundStyle(saaa.textPrimary)
-                Text("\(Int(judgment.match.confidence * 100))% · \(judgment.callType.replacingOccurrences(of: "_", with: " "))")
+                Text(filedToDetail(judgment))
                     .font(SaaaFont.monoCaption)
                     .foregroundStyle(saaa.textTertiary)
             }
@@ -315,5 +316,13 @@ private struct HistoryView: View {
 
     private func duration(_ seconds: TimeInterval) -> String {
         Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond))
+    }
+
+    private func filedToDetail(_ judgment: CallJudgment) -> String {
+        var detail = "\(Int(judgment.match.confidence * 100))% · \(judgment.callType.replacingOccurrences(of: "_", with: " "))"
+        if let agent = judgment.filedBy {
+            detail += " · \(AgentID(rawValue: agent)?.displayName ?? agent)"
+        }
+        return detail
     }
 }

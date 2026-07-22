@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5AA00000000000000000004A /* AgentBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA00000000000000000003A /* AgentBridge */; };
 		5AA000000000000000000040 /* AudioCapture in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000030 /* AudioCapture */; };
 		5AA000000000000000000041 /* CalendarContext in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000031 /* CalendarContext */; };
 		5AA000000000000000000042 /* CallSession in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000032 /* CallSession */; };
@@ -32,6 +33,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5AA00000000000000000004A /* AgentBridge in Frameworks */,
 				5AA000000000000000000040 /* AudioCapture in Frameworks */,
 				5AA000000000000000000041 /* CalendarContext in Frameworks */,
 				5AA000000000000000000042 /* CallSession in Frameworks */,
@@ -84,6 +86,7 @@
 			);
 			name = Saaa;
 			packageProductDependencies = (
+				5AA00000000000000000003A /* AgentBridge */,
 				5AA000000000000000000030 /* AudioCapture */,
 				5AA000000000000000000031 /* CalendarContext */,
 				5AA000000000000000000032 /* CallSession */,
@@ -124,6 +127,7 @@
 			mainGroup = 5AA00000000000000000000C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				5AA00000000000000000002A /* XCLocalSwiftPackageReference "Packages/AgentBridge" */,
 				5AA000000000000000000020 /* XCLocalSwiftPackageReference "Packages/AudioCapture" */,
 				5AA000000000000000000021 /* XCLocalSwiftPackageReference "Packages/CalendarContext" */,
 				5AA000000000000000000022 /* XCLocalSwiftPackageReference "Packages/CallSession" */,
@@ -268,6 +272,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		5AA00000000000000000002A /* XCLocalSwiftPackageReference "Packages/AgentBridge" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/AgentBridge;
+		};
 		5AA000000000000000000020 /* XCLocalSwiftPackageReference "Packages/AudioCapture" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/AudioCapture;
@@ -311,6 +319,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		5AA00000000000000000003A /* AgentBridge */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AgentBridge;
+		};
 		5AA000000000000000000030 /* AudioCapture */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = AudioCapture;

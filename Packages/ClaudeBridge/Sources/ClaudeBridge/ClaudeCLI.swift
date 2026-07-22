@@ -10,7 +10,7 @@ public actor ClaudeCLI {
 
     /// Candidate install locations, checked in order (login-shell PATHs are
     /// not visible to a GUI app, so well-known locations are probed too).
-    static let knownLocations = [
+    public static let knownLocations = [
         "~/.local/bin/claude",
         "/usr/local/bin/claude",
         "/opt/homebrew/bin/claude",

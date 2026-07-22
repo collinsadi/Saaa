@@ -16,6 +16,8 @@ public struct ClaudeRunConfiguration: Sendable, Equatable {
     public var maxTurns: Int
     /// JSON Schema the structured result must conform to (`--json-schema`).
     public var jsonSchema: String?
+    /// Model name or alias (`--model`); nil = the CLI's configured default.
+    public var model: String?
     /// Wall-clock bound; the subprocess is terminated when exceeded.
     public var timeout: Duration
 
@@ -26,6 +28,7 @@ public struct ClaudeRunConfiguration: Sendable, Equatable {
         permissionMode: String = "default",
         maxTurns: Int = 12,
         jsonSchema: String? = nil,
+        model: String? = nil,
         timeout: Duration = .seconds(180)
     ) {
         self.prompt = prompt
@@ -34,6 +37,7 @@ public struct ClaudeRunConfiguration: Sendable, Equatable {
         self.permissionMode = permissionMode
         self.maxTurns = maxTurns
         self.jsonSchema = jsonSchema
+        self.model = model
         self.timeout = timeout
     }
 
@@ -47,6 +51,9 @@ public struct ClaudeRunConfiguration: Sendable, Equatable {
         args += ["--permission-mode", permissionMode]
         if let jsonSchema {
             args += ["--json-schema", jsonSchema]
+        }
+        if let model {
+            args += ["--model", model]
         }
         return args
     }

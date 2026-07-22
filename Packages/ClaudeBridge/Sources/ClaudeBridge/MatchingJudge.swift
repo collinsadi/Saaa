@@ -51,16 +51,22 @@ public struct CallJudgment: Sendable, Codable, Equatable {
     /// technical | client_preference | standup | other
     public let callType: String
     public let extracted: [ExtractedItem]
+    /// Raw AgentID of the agent that produced this judgment. Set by the
+    /// provider layer after the run, never by the agent itself; optional so
+    /// archives sealed before provider abstraction still decode.
+    public var filedBy: String?
 
     enum CodingKeys: String, CodingKey {
         case match, extracted
         case callType = "call_type"
+        case filedBy = "filed_by"
     }
 
-    public init(match: Match, callType: String, extracted: [ExtractedItem]) {
+    public init(match: Match, callType: String, extracted: [ExtractedItem], filedBy: String? = nil) {
         self.match = match
         self.callType = callType
         self.extracted = extracted
+        self.filedBy = filedBy
     }
 }
 
@@ -116,11 +122,16 @@ public enum MatchingJudge {
     }
     """
 
+    /// Human labels for candidate provenance lines (raw AgentID -> name).
+    static let agentNames = ["claude": "Claude Code", "codex": "Codex"]
+
     /// Composes the judgment prompt from the transcript, shortlist, and
-    /// calendar context.
+    /// calendar context. `provenance` maps a candidate path to the raw ids
+    /// of agents that know it — surfaced as a matching signal.
     public static func prompt(
         transcript: Transcript,
         shortlist: [(path: String, name: String, score: Double)],
+        provenance: [String: [String]] = [:],
         calendar: CalendarContext?
     ) -> String {
         var sections: [String] = []
@@ -128,7 +139,7 @@ public enum MatchingJudge {
         You are filing a recorded call into the right local project. Decide which \
         of the candidate projects this conversation belongs to, classify the call, \
         and extract durable context. You may read files inside the candidate \
-        directories (CLAUDE.md, README) to inform the decision.
+        directories (CLAUDE.md, AGENTS.md, README) to inform the decision.
 
         Rules:
         - If no candidate genuinely fits, set project_path to null — never force a match.
@@ -151,7 +162,15 @@ public enum MatchingJudge {
             sections.append(block)
         }
         let candidates = shortlist
-            .map { "- \($0.name) — \($0.path) (prefilter score \(String(format: "%.1f", $0.score)))" }
+            .map { entry in
+                var line = "- \(entry.name) — \(entry.path) (prefilter score \(String(format: "%.1f", entry.score))"
+                let knowers = (provenance[entry.path] ?? [])
+                    .compactMap { agentNames[$0] ?? $0 }
+                if !knowers.isEmpty {
+                    line += "; known to \(knowers.joined(separator: ", "))"
+                }
+                return line + ")"
+            }
             .joined(separator: "\n")
         sections.append("Candidate projects (local prefilter, best first):\n\(candidates)")
         sections.append("Transcript (Me = this machine's user, Them = the other side):\n\(transcript.attributedText)")
@@ -164,16 +183,21 @@ public enum MatchingJudge {
         cli: ClaudeCLI,
         transcript: Transcript,
         shortlist: [(path: String, name: String, score: Double)],
+        provenance: [String: [String]] = [:],
         calendar: CalendarContext?,
+        model: String? = nil,
         timeout: Duration = .seconds(240)
     ) async throws -> CallJudgment {
         let configuration = ClaudeRunConfiguration(
-            prompt: prompt(transcript: transcript, shortlist: shortlist, calendar: calendar),
+            prompt: prompt(
+                transcript: transcript, shortlist: shortlist,
+                provenance: provenance, calendar: calendar),
             workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
             allowedTools: ["Read", "Glob", "Grep"],
             permissionMode: "default",
             maxTurns: 16,
             jsonSchema: schema,
+            model: model,
             timeout: timeout)
         let result = try await cli.run(configuration)
         return try result.decode(CallJudgment.self)

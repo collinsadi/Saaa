@@ -161,17 +161,17 @@ private struct OnboardingView: View {
     private var claude: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
             titleBlock(
-                "Your Claude Code files the call",
-                "Runs under your subscription. Writes only what you approve.")
+                "Your coding agent files the call",
+                "Claude Code or Codex, under your own login. Writes only what you approve.")
             statusCard(
-                icon: "terminal.fill", title: "claude CLI",
-                body: "Read-only for matching.",
+                icon: "terminal.fill", title: "Coding agent",
+                body: "Read-only for matching. Each project routes to the agent that knows it.",
                 status: model.claudeStatus,
-                action: ("Check", { model.checkClaude() }))
+                action: ("Check", { model.checkAgents() }))
             infoCard(
                 icon: "tray.fill",
-                title: "Works without it",
-                body: "Calls simply stay unfiled until Claude Code is ready.")
+                title: "Works without one",
+                body: "Calls simply stay unfiled until an agent is ready.")
         }
     }
 

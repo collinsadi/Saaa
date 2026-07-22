@@ -1,3 +1,4 @@
+import AgentBridge
 import AppKit
 import CallSession
 import ClaudeBridge
@@ -136,6 +137,11 @@ private struct ReviewView: View {
                     .foregroundStyle(saaa.textTertiary)
                     .lineLimit(1)
                 confidenceRow(judgment.match.confidence)
+                if let agent = judgment.filedBy {
+                    Text("judged by \(AgentID(rawValue: agent)?.displayName ?? agent)")
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.textTertiary)
+                }
                 Text(judgment.match.reasoning)
                     .font(SaaaFont.callout)
                     .foregroundStyle(saaa.textSecondary)

@@ -1,3 +1,4 @@
+import AgentBridge
 import CallSession
 import Core
 import DesignSystem
@@ -17,6 +18,9 @@ struct SaaaSettingsView: View {
     @AppStorage(CaptureExclusion.enabledKey) private var invisibleMode = false
     @AppStorage(CaptureExclusion.scopeKey) private var invisibleScope =
         InvisibleModeScope.allWindows.rawValue
+    @AppStorage(FilingPreferences.agentKey) private var filingAgent = "auto"
+    @AppStorage(FilingPreferences.intentKey) private var filingIntent = "default"
+    @AppStorage(FilingPreferences.exactModelKey) private var filingExactModel = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,6 +56,39 @@ struct SaaaSettingsView: View {
                 }
                 .padding(.vertical, Space.sm)
             }
+            section("Filing") {
+                labeledRow("Preferred agent") {
+                    Picker("", selection: $filingAgent) {
+                        Text("Auto").tag("auto")
+                        Text("Claude Code").tag(AgentID.claudeCode.rawValue)
+                        Text("Codex").tag(AgentID.codex.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 230)
+                }
+                Text("Auto sends each call to the agent that knows the matched project; the other installed agent is the fallback.")
+                    .font(SaaaFont.caption)
+                    .foregroundStyle(saaa.textTertiary)
+                labeledRow("Model") {
+                    Picker("", selection: $filingIntent) {
+                        Text("Fast").tag("fast")
+                        Text("Default").tag("default")
+                        Text("Best").tag("best")
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 230)
+                }
+                labeledRow("Exact model") {
+                    TextField("optional override", text: $filingExactModel)
+                        .textFieldStyle(.plain)
+                        .font(SaaaFont.monoBody)
+                        .foregroundStyle(saaa.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 230)
+                }
+            }
             section("Privacy") {
                 toggleRow(
                     "Invisible Mode",
@@ -77,7 +114,7 @@ struct SaaaSettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(Space.xxl)
-        .frame(width: 460, height: invisibleMode ? 520 : 470)
+        .frame(width: 460, height: invisibleMode ? 700 : 650)
         .background(saaa.surfaceBase)
         .background(WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in
@@ -95,6 +132,19 @@ struct SaaaSettingsView: View {
             Divider().overlay(saaa.borderHairline)
         }
         .padding(.bottom, Space.lg)
+    }
+
+    private func labeledRow(
+        _ label: String, @ViewBuilder control: () -> some View
+    ) -> some View {
+        HStack {
+            Text(label)
+                .font(SaaaFont.body)
+                .foregroundStyle(saaa.textPrimary)
+            Spacer()
+            control()
+        }
+        .padding(.vertical, Space.sm)
     }
 
     private func toggleRow(

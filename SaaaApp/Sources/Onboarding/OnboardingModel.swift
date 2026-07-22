@@ -1,8 +1,8 @@
+import AgentBridge
 import AppKit
 import AudioCapture
 import AVFoundation
 import CalendarContext
-import ClaudeBridge
 import EventKit
 import Foundation
 import Transcription
@@ -33,7 +33,7 @@ final class OnboardingModel {
     private(set) var claudeStatus: StepStatus = .unknown
 
     private let modelManager = ModelManager()
-    private let claudeCLI = ClaudeCLI()
+    private let agents = AgentRegistry.standard
     private let calendarReader = CalendarReader()
 
     func refresh() {
@@ -130,24 +130,25 @@ final class OnboardingModel {
         }
     }
 
-    func checkClaude() {
+    /// Checks every supported agent; the step passes when at least one is
+    /// installed and signed in. Filing routes between them per project.
+    func checkAgents() {
         claudeStatus = .working("Checking")
         Task {
-            guard await claudeCLI.locate() != nil else {
-                claudeStatus = .denied("Not found")
+            let installed = agents.installedProviders()
+            guard !installed.isEmpty else {
+                claudeStatus = .denied("None found")
                 return
             }
-            do {
-                _ = try await claudeCLI.run(ClaudeRunConfiguration(
-                    prompt: "Reply with exactly: OK",
-                    workingDirectory: FileManager.default.temporaryDirectory,
-                    allowedTools: [], maxTurns: 1, timeout: .seconds(60)))
-                claudeStatus = .granted("Signed in")
-            } catch ClaudeBridgeError.notAuthenticated {
-                claudeStatus = .denied("Signed out")
-            } catch {
-                claudeStatus = .denied("Check failed")
+            var ready: [String] = []
+            for provider in installed {
+                if await provider.verifyAuthenticated() {
+                    ready.append(provider.displayName)
+                }
             }
+            claudeStatus = ready.isEmpty
+                ? .denied("Signed out")
+                : .granted(ready.joined(separator: " + "))
         }
     }
 }

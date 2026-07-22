@@ -1,3 +1,4 @@
+import AgentBridge
 import AppKit
 import AudioCapture
 import CalendarContext
@@ -37,10 +38,10 @@ public final class CallController {
 
     /// Prefilter shortlist of the last processed call (Phase-6 input).
     public private(set) var lastMatches: [ScoredCandidate] = []
-    /// Claude Code's judgment for the last processed call, if it ran.
+    /// The routed agent's judgment for the last processed call, if it ran.
     public private(set) var lastJudgment: CallJudgment?
 
-    private let claudeCLI = ClaudeCLI()
+    private let agentRegistry = AgentRegistry.standard
 
     /// Audio retention (recommended default: delete WAVs once transcribed).
     public var retention = RetentionPolicy()
@@ -291,32 +292,56 @@ public final class CallController {
 
             let transcript = TranscriptMerger.merge(mic: mic, system: system)
 
-            // Phase-5 shortlist: cheap prefilter over the local Claude store,
-            // persisted beside the transcript for the Phase-6 judgment.
+            // Phase-5 shortlist: cheap prefilter over every installed
+            // agent's memory (Claude Code's store, Codex's sessions),
+            // persisted beside the transcript for the judgment.
             processingDetail = "Matching projects…"
-            let candidates = CandidateEnumerator().enumerate()
+            let installed = agentRegistry.installedProviders()
+            let candidates = AgentRegistry.mergedCandidates(
+                from: installed.map { $0.knownProjects() })
             lastMatches = Prefilter.rank(
                 candidates: candidates, transcript: transcript,
                 calendar: callCalendarContext)
-            // Stage 2: Claude Code's read-only judgment over the shortlist.
-            // Failures degrade gracefully — the transcript always survives.
+            // Stage 2: the routed agent's read-only judgment over the
+            // shortlist. The project's provenance picks the agent, the user
+            // default breaks ties, and every other installed agent is
+            // automatic fallback. Failures degrade gracefully — the
+            // transcript always survives, unfiled.
             lastJudgment = nil
             if !lastMatches.isEmpty, !transcript.segments.isEmpty {
-                processingDetail = "Asking Claude Code…"
-                do {
-                    lastJudgment = try await MatchingJudge.judge(
-                        cli: claudeCLI,
-                        transcript: transcript,
-                        shortlist: lastMatches.map {
-                            (path: $0.candidate.path.path,
-                             name: $0.candidate.name,
-                             score: $0.score)
-                        },
-                        calendar: callCalendarContext)
-                } catch ClaudeBridgeError.claudeNotInstalled {
-                    Self.log.info("claude not installed — keeping transcript unfiled")
-                } catch {
-                    Self.log.error("judgment failed: \(String(describing: error), privacy: .public)")
+                let filing = FilingPreferences.fromDefaults()
+                let attempts = agentRegistry.attemptOrder(
+                    topCandidateKnownTo: lastMatches.first?.candidate.knownTo ?? [],
+                    preferred: filing.preferredAgent,
+                    from: installed)
+                if attempts.isEmpty {
+                    Self.log.info("no coding agent installed — keeping transcript unfiled")
+                }
+                let shortlist = lastMatches.map {
+                    (path: $0.candidate.path.path,
+                     name: $0.candidate.name,
+                     score: $0.score)
+                }
+                let provenance = Dictionary(
+                    uniqueKeysWithValues: lastMatches.map {
+                        ($0.candidate.path.path, Array($0.candidate.knownTo).sorted())
+                    })
+                for provider in attempts {
+                    processingDetail = "Asking \(provider.displayName)…"
+                    do {
+                        var judgment = try await provider.judge(
+                            transcript: transcript,
+                            shortlist: shortlist,
+                            provenance: provenance,
+                            calendar: callCalendarContext,
+                            model: filing.modelIntent,
+                            timeout: .seconds(240))
+                        judgment.filedBy = provider.id.rawValue
+                        lastJudgment = judgment
+                        break
+                    } catch {
+                        Self.log.error("\(provider.displayName, privacy: .public) judgment failed: \(String(describing: error), privacy: .public) — falling back if another agent is installed")
+                    }
                 }
             }
 
