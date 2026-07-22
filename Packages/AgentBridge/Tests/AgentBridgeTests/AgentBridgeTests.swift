@@ -21,6 +21,7 @@ private struct FakeProvider: AgentProvider {
         provenance: [String: [String]],
         calendar: CalendarContext?,
         pinnedProject: String?,
+        instructions: String?,
         model: ModelIntent,
         timeout: Duration
     ) async throws -> CallJudgment {

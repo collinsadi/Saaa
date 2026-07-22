@@ -49,6 +49,9 @@ public final class CallController {
     /// Learned filing signals; fed only by confirmed write-backs.
     @ObservationIgnored private lazy var filingMemory: FilingMemory? =
         encryption.map { FilingMemory(encryption: $0) }
+    /// User-authored vocabulary and filing instructions (issue #2).
+    @ObservationIgnored private lazy var promptStore: PromptStore? =
+        encryption.map { PromptStore(encryption: $0) }
     /// The call vector of the last processed transcript, kept for learning
     /// when the user confirms the write-back.
     @ObservationIgnored private var lastTranscriptVector: [Double]?
@@ -172,6 +175,18 @@ public final class CallController {
     /// Forgets all learned filing signals (Settings action).
     public func clearFilingMemory() {
         filingMemory?.clear()
+    }
+
+    /// The custom-prompt store, shared with the hub's Prompts pane.
+    public var prompts: PromptStore? { promptStore }
+
+    /// Project directories every installed agent knows — the hub's Prompts
+    /// pane offers them as per-project scopes.
+    public func knownProjectPaths() -> [String] {
+        AgentRegistry.mergedCandidates(
+            from: agentRegistry.installedProviders().map { $0.knownProjects() })
+            .map(\.path.path)
+            .sorted()
     }
 
     // MARK: - Recording
@@ -385,9 +400,20 @@ public final class CallController {
             }
             guard let transcriber = cachedTranscriber else { return }
 
-            // Calendar terms pre-warm Whisper's vocabulary (proper nouns).
+            // Custom vocabulary + calendar terms pre-warm Whisper's proper
+            // nouns. Project-scoped vocabulary applies when the learned
+            // meeting link already names the project (matching happens
+            // after transcription, so this is the only pre-hoc hint).
+            var vocabularySources = [promptStore?.text(.vocabulary, scope: .global)]
+            if let title = callCalendarContext?.title,
+               let linked = filingMemory?.projectPath(forMeeting: title) {
+                vocabularySources.append(
+                    promptStore?.text(.vocabulary, scope: .project(path: linked)))
+            }
+            vocabularySources.append(promptStore?.text(.vocabulary, scope: .nextCall))
+            let customTerms = PromptResolver.vocabularyTerms(vocabularySources)
             let bias = VocabularyBias.initialPrompt(
-                terms: callCalendarContext?.signalTerms ?? [])
+                terms: customTerms + (callCalendarContext?.signalTerms ?? []))
             let transcript: Transcript
             if let micWAV {
                 processingDetail = "Transcribing your side…"
@@ -474,6 +500,27 @@ public final class CallController {
                     uniqueKeysWithValues: lastMatches.map {
                         ($0.candidate.path.path, Array($0.candidate.knownTo).sorted())
                     })
+                // Composed filing instructions: global, project (when
+                // pinned; on open judgments the agent reads the repo's own
+                // CLAUDE.md/AGENTS.md), conditional call-type blocks, and
+                // any one-time next-call prompt. Template-rendered here.
+                let instructions: String? = promptStore.flatMap { store in
+                    PromptResolver.composeFiling(
+                        global: store.text(.filing, scope: .global),
+                        project: pinnedProject.flatMap {
+                            store.text(.filing, scope: .project(path: $0))
+                        },
+                        callTypeBlocks: store.callTypeBlocks(.filing),
+                        nextCall: store.text(.filing, scope: .nextCall))
+                    .map {
+                        PromptTemplate.render(
+                            $0,
+                            project: (pinnedProject ?? lastMatches.first?.candidate.path.path)
+                                .map { URL(filePath: $0).lastPathComponent },
+                            attendees: callCalendarContext?.attendees ?? [],
+                            date: sessionStartedAt)
+                    }
+                }
                 for provider in attempts {
                     processingDetail = pinnedProject == nil
                         ? "Asking \(provider.displayName)…"
@@ -485,6 +532,7 @@ public final class CallController {
                             provenance: provenance,
                             calendar: callCalendarContext,
                             pinnedProject: pinnedProject,
+                            instructions: instructions,
                             model: filing.modelIntent,
                             timeout: .seconds(240))
                         judgment.filedBy = provider.id.rawValue
@@ -495,6 +543,8 @@ public final class CallController {
                     }
                 }
             }
+            // One-time prompts are spent regardless of how the call filed.
+            promptStore?.clearNextCall()
 
             // Phase 8 — content is sealed into one encrypted archive; raw
             // audio is deleted per the retention default (text survives,

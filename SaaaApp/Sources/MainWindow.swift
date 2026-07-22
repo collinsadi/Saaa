@@ -134,6 +134,7 @@ final class ImportQueueModel {
 
 private enum HubPane: String, CaseIterable, Identifiable {
     case importFiles
+    case prompts
     case history
     case settings
 
@@ -142,6 +143,7 @@ private enum HubPane: String, CaseIterable, Identifiable {
     var label: (title: String, icon: String) {
         switch self {
         case .importFiles: ("Import", "square.and.arrow.down")
+        case .prompts: ("Prompts", "text.quote")
         case .history: ("History", "clock")
         case .settings: ("Settings", "gearshape")
         }
@@ -212,6 +214,8 @@ struct MainHubView: View {
         switch pane {
         case .importFiles:
             ImportPane(controller: controller, queue: importQueue)
+        case .prompts:
+            PromptsPane(controller: controller)
         case .history:
             HistoryView()
         case .settings:

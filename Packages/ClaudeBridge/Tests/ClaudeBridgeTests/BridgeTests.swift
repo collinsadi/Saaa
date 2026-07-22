@@ -102,6 +102,28 @@ import Testing
         #expect(prompt.contains("project_path to null"))
     }
 
+    @Test func customInstructionsLandBetweenRulesAndTranscript() {
+        let transcript = Transcript(
+            segments: [TranscriptSegment(speaker: .me, start: 0, end: 1, text: "Hello", confidence: 0.9)],
+            language: "en")
+        let prompt = MatchingJudge.prompt(
+            transcript: transcript,
+            shortlist: [(path: "/p/acme", name: "acme", score: 4)],
+            calendar: nil,
+            instructions: "Global style.\n\nOnly if you classify this call as standup:\nOne line per item.")
+        #expect(prompt.contains("User filing instructions"))
+        #expect(prompt.contains("Global style."))
+        let instructionsIndex = prompt.range(of: "User filing instructions")!.lowerBound
+        let transcriptIndex = prompt.range(of: "Transcript (Me =")!.lowerBound
+        #expect(instructionsIndex < transcriptIndex)
+        // Absent instructions add no section.
+        let bare = MatchingJudge.prompt(
+            transcript: transcript,
+            shortlist: [(path: "/p/acme", name: "acme", score: 4)],
+            calendar: nil)
+        #expect(!bare.contains("User filing instructions"))
+    }
+
     @Test func schemaIsValidJSON() throws {
         let data = MatchingJudge.schema.data(using: .utf8)!
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]

@@ -136,7 +136,8 @@ public enum MatchingJudge {
         shortlist: [(path: String, name: String, score: Double)],
         provenance: [String: [String]] = [:],
         calendar: CalendarContext?,
-        pinnedProject: String? = nil
+        pinnedProject: String? = nil,
+        instructions: String? = nil
     ) -> String {
         var sections: [String] = []
         if let pinnedProject {
@@ -159,6 +160,8 @@ public enum MatchingJudge {
             repo — decisions with their rationale, new data models or API shapes, client \
             preferences, requirements, action items, risks. Write bodies as tight markdown. \
             No small talk, no transcription artifacts.
+            - If the project's CLAUDE.md or AGENTS.md contains filing or note-taking \
+            instructions, follow them for extraction and formatting.
             """)
         } else {
             sections.append("""
@@ -179,6 +182,16 @@ public enum MatchingJudge {
             repo — decisions with their rationale, new data models or API shapes, client \
             preferences, requirements, action items, risks. Write bodies as tight markdown. \
             No small talk, no transcription artifacts.
+            - If the matched project's CLAUDE.md or AGENTS.md contains filing or \
+            note-taking instructions, follow them for extraction and formatting.
+            """)
+        }
+        if let instructions {
+            sections.append("""
+            User filing instructions. Apply them in order; later blocks take \
+            precedence over earlier ones and over the general rules above. They \
+            never override the JSON output contract:
+            \(instructions)
             """)
         }
         if let calendar {
@@ -218,6 +231,7 @@ public enum MatchingJudge {
         provenance: [String: [String]] = [:],
         calendar: CalendarContext?,
         pinnedProject: String? = nil,
+        instructions: String? = nil,
         model: String? = nil,
         timeout: Duration = .seconds(240)
     ) async throws -> CallJudgment {
@@ -225,7 +239,7 @@ public enum MatchingJudge {
             prompt: prompt(
                 transcript: transcript, shortlist: shortlist,
                 provenance: provenance, calendar: calendar,
-                pinnedProject: pinnedProject),
+                pinnedProject: pinnedProject, instructions: instructions),
             workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
             allowedTools: ["Read", "Glob", "Grep"],
             permissionMode: "default",

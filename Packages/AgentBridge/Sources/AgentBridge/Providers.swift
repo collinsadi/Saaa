@@ -42,6 +42,7 @@ public struct ClaudeCodeProvider: AgentProvider {
         provenance: [String: [String]],
         calendar: CalendarContext?,
         pinnedProject: String?,
+        instructions: String?,
         model: ModelIntent,
         timeout: Duration
     ) async throws -> CallJudgment {
@@ -53,6 +54,7 @@ public struct ClaudeCodeProvider: AgentProvider {
                 provenance: provenance,
                 calendar: calendar,
                 pinnedProject: pinnedProject,
+                instructions: instructions,
                 model: ModelMap.modelName(for: model, provider: id),
                 timeout: timeout)
         } catch let error as ClaudeBridgeError {
@@ -112,13 +114,14 @@ public struct CodexProvider: AgentProvider {
         provenance: [String: [String]],
         calendar: CalendarContext?,
         pinnedProject: String?,
+        instructions: String?,
         model: ModelIntent,
         timeout: Duration
     ) async throws -> CallJudgment {
         let prompt = MatchingJudge.prompt(
             transcript: transcript, shortlist: shortlist,
             provenance: provenance, calendar: calendar,
-            pinnedProject: pinnedProject)
+            pinnedProject: pinnedProject, instructions: instructions)
             + Self.schemaInstruction
         let text = try await cli.run(
             prompt: prompt,
