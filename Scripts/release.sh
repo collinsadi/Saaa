@@ -36,6 +36,19 @@ xcrun stapler staple dist/Saaa.app
 ditto -c -k --keepParent dist/Saaa.app dist/Saaa.zip
 rm dist/Saaa-notarize.zip
 
+echo "== dmg (drag-install image: app + /Applications symlink)"
+rm -rf dist/dmg-staging && mkdir dist/dmg-staging
+cp -R dist/Saaa.app dist/dmg-staging/Saaa.app
+ln -s /Applications dist/dmg-staging/Applications
+hdiutil create -volname "Saaa" -srcfolder dist/dmg-staging -ov -format UDZO dist/Saaa.dmg
+codesign --force --timestamp --sign "$IDENTITY" dist/Saaa.dmg
+
+echo "== notarize + staple dmg"
+xcrun notarytool submit dist/Saaa.dmg --keychain-profile "$PROFILE" --wait
+xcrun stapler staple dist/Saaa.dmg
+rm -rf dist/dmg-staging
+
 echo "== gatekeeper check"
 spctl -a -vv --type execute dist/Saaa.app
-echo "done: dist/Saaa.zip"
+spctl -a -vv -t open --context context:primary-signature dist/Saaa.dmg
+echo "done: dist/Saaa.zip + dist/Saaa.dmg"
