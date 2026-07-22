@@ -24,6 +24,8 @@ struct SaaaSettingsView: View {
     @AppStorage(FilingPreferences.agentKey) private var filingAgent = "auto"
     @AppStorage(FilingPreferences.intentKey) private var filingIntent = "default"
     @AppStorage(FilingPreferences.exactModelKey) private var filingExactModel = ""
+    @AppStorage("hubOpacity") private var hubOpacity = 1.0
+    @AppStorage("hubFadeWhenInactive") private var hubFadeWhenInactive = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,6 +40,23 @@ struct SaaaSettingsView: View {
             section("Island") {
                 toggleRow("Show the island on this Mac", isOn: $showIsland)
                 toggleRow("Reduce live movement (freeze meters)", isOn: $freezeMeters)
+            }
+            section("Hub window") {
+                labeledRow("Opacity") {
+                    HStack(spacing: Space.md) {
+                        Slider(value: $hubOpacity, in: HubOpacityPolicy.floor...1.0)
+                            .tint(saaa.tideFill)
+                            .frame(width: 180)
+                        Text("\(Int(hubOpacity * 100))%")
+                            .font(SaaaFont.monoBody)
+                            .foregroundStyle(saaa.textSecondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+                toggleRow(
+                    "Fade further when the window is inactive",
+                    caption: "Text and cards always stay at full strength; only the base fades. The system Reduce Transparency setting overrides both.",
+                    isOn: $hubFadeWhenInactive)
             }
             section("Recording") {
                 toggleRow(
@@ -134,8 +153,8 @@ struct SaaaSettingsView: View {
         }
         .padding(Space.xxl)
         .frame(width: 460)
-        .frame(height: embedded ? nil : (invisibleMode ? 760 : 710))
-        .background(saaa.surfaceBase)
+        .frame(height: embedded ? nil : (invisibleMode ? 850 : 800))
+        .background(embedded ? AnyShapeStyle(.clear) : AnyShapeStyle(saaa.surfaceBase))
         .background(embedded ? nil : WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in
             controller.retention = RetentionPolicy(autoDeleteAudioAfterTranscription: enabled)

@@ -35,6 +35,10 @@ final class MainWindowPresenter {
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
         window.contentMinSize = NSSize(width: 720, height: 460)
         window.isReleasedWhenClosed = false
+        // Opacity rides the SwiftUI background, not alphaValue, so text and
+        // cards stay at full strength while the base material fades.
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.center()
         self.window = window
         CaptureExclusion.shared.register(window, as: .main)
@@ -155,6 +159,10 @@ struct MainHubView: View {
     let importQueue: ImportQueueModel
 
     @Environment(\.saaa) private var saaa
+    @Environment(\.controlActiveState) private var activeState
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage("hubOpacity") private var hubOpacity = 1.0
+    @AppStorage("hubFadeWhenInactive") private var fadeWhenInactive = false
     @State private var pane: HubPane = .importFiles
 
     var body: some View {
@@ -165,7 +173,11 @@ struct MainHubView: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(saaa.surfaceBase)
+        .background(saaa.surfaceBase.opacity(HubOpacityPolicy.effective(
+            userOpacity: hubOpacity,
+            reduceTransparency: reduceTransparency,
+            isInactive: activeState == .inactive,
+            fadeWhenInactive: fadeWhenInactive)))
         .onChange(of: controller.state) { _, newState in
             importQueue.stateChanged(newState, controller: controller)
         }
@@ -217,7 +229,7 @@ struct MainHubView: View {
         case .prompts:
             PromptsPane(controller: controller)
         case .history:
-            HistoryView()
+            HistoryView(embedded: true)
         case .settings:
             ScrollView {
                 HStack {

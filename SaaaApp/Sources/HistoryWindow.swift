@@ -83,6 +83,9 @@ final class HistoryModel {
 }
 
 struct HistoryView: View {
+    /// True inside the hub, whose translucent base must show through.
+    var embedded = false
+
     @Environment(\.saaa) private var saaa
     @State private var model = HistoryModel()
     @State private var pendingDelete: SessionStore.Row?
@@ -95,7 +98,7 @@ struct HistoryView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(saaa.surfaceBase)
+        .background(embedded ? AnyShapeStyle(.clear) : AnyShapeStyle(saaa.surfaceBase))
         .onAppear { model.reload() }
         .confirmationDialog(
             "Delete this call?",
