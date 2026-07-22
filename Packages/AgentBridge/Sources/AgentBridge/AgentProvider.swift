@@ -54,12 +54,15 @@ public protocol AgentProvider: Sendable {
     /// agent's id. Reads local config and session logs only.
     func knownProjects() -> [ProjectCandidate]
 
-    /// The read-only matching + extraction judgment.
+    /// The read-only matching + extraction judgment. A non-nil
+    /// `pinnedProject` means local evidence already decided the project and
+    /// the agent only classifies and extracts (issue #7 escalation gate).
     func judge(
         transcript: Transcript,
         shortlist: [(path: String, name: String, score: Double)],
         provenance: [String: [String]],
         calendar: CalendarContext?,
+        pinnedProject: String?,
         model: ModelIntent,
         timeout: Duration
     ) async throws -> CallJudgment

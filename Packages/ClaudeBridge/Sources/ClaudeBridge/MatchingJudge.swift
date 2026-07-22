@@ -127,30 +127,60 @@ public enum MatchingJudge {
 
     /// Composes the judgment prompt from the transcript, shortlist, and
     /// calendar context. `provenance` maps a candidate path to the raw ids
-    /// of agents that know it — surfaced as a matching signal.
+    /// of agents that know it — surfaced as a matching signal. When
+    /// `pinnedProject` is set, local evidence already decided the project
+    /// and the agent only classifies and extracts (issue #7 escalation
+    /// gate) — with an honest escape hatch, never a forced match.
     public static func prompt(
         transcript: Transcript,
         shortlist: [(path: String, name: String, score: Double)],
         provenance: [String: [String]] = [:],
-        calendar: CalendarContext?
+        calendar: CalendarContext?,
+        pinnedProject: String? = nil
     ) -> String {
         var sections: [String] = []
-        sections.append("""
-        You are filing a recorded call into the right local project. Decide which \
-        of the candidate projects this conversation belongs to, classify the call, \
-        and extract durable context. You may read files inside the candidate \
-        directories (CLAUDE.md, AGENTS.md, README) to inform the decision.
+        if let pinnedProject {
+            sections.append("""
+            You are filing a recorded call into a local project that was already \
+            decided by strong local evidence (calendar agreement, learned meeting \
+            history, dominant retrieval score): \(pinnedProject)
 
-        Rules:
-        - If no candidate genuinely fits, set project_path to null — never force a match.
-        - confidence is your honest 0..1 estimate; alternates lists other plausible candidates' paths.
-        - call_type: technical (architecture/code decisions), client_preference \
-        (wishes/constraints from a client), standup (status sync), other.
-        - extracted: only durable, project-relevant context worth writing into the \
-        repo — decisions with their rationale, new data models or API shapes, client \
-        preferences, requirements, action items, risks. Write bodies as tight markdown. \
-        No small talk, no transcription artifacts.
-        """)
+            Do not re-litigate the choice. Classify the call and extract durable \
+            context from the transcript. Set match.project_path to exactly that \
+            path with confidence at least 0.75. Only if the transcript clearly \
+            cannot belong to this project, set project_path to null and say why \
+            in reasoning. You may read files inside the project directory \
+            (CLAUDE.md, AGENTS.md, README) to sharpen extraction.
+
+            Rules:
+            - call_type: technical (architecture/code decisions), client_preference \
+            (wishes/constraints from a client), standup (status sync), other.
+            - extracted: only durable, project-relevant context worth writing into the \
+            repo — decisions with their rationale, new data models or API shapes, client \
+            preferences, requirements, action items, risks. Write bodies as tight markdown. \
+            No small talk, no transcription artifacts.
+            """)
+        } else {
+            sections.append("""
+            You are filing a recorded call into the right local project. Decide which \
+            of the candidate projects this conversation belongs to, classify the call, \
+            and extract durable context. You may read files inside the candidate \
+            directories (CLAUDE.md, AGENTS.md, README) to inform the decision.
+
+            Rules:
+            - If no candidate genuinely fits, set project_path to null — never force a match.
+            - A call can span projects: file it under the primary one and list the \
+            others in alternates, saying so in reasoning. Unfiled and multi-project \
+            are legitimate outcomes, not failures.
+            - confidence is your honest 0..1 estimate; alternates lists other plausible candidates' paths.
+            - call_type: technical (architecture/code decisions), client_preference \
+            (wishes/constraints from a client), standup (status sync), other.
+            - extracted: only durable, project-relevant context worth writing into the \
+            repo — decisions with their rationale, new data models or API shapes, client \
+            preferences, requirements, action items, risks. Write bodies as tight markdown. \
+            No small talk, no transcription artifacts.
+            """)
+        }
         if let calendar {
             var block = "Calendar event during the call: \"\(calendar.title)\""
             if !calendar.attendees.isEmpty {
@@ -161,18 +191,20 @@ public enum MatchingJudge {
             }
             sections.append(block)
         }
-        let candidates = shortlist
-            .map { entry in
-                var line = "- \(entry.name) — \(entry.path) (prefilter score \(String(format: "%.1f", entry.score))"
-                let knowers = (provenance[entry.path] ?? [])
-                    .compactMap { agentNames[$0] ?? $0 }
-                if !knowers.isEmpty {
-                    line += "; known to \(knowers.joined(separator: ", "))"
+        if pinnedProject == nil {
+            let candidates = shortlist
+                .map { entry in
+                    var line = "- \(entry.name) — \(entry.path) (prefilter score \(String(format: "%.1f", entry.score))"
+                    let knowers = (provenance[entry.path] ?? [])
+                        .compactMap { agentNames[$0] ?? $0 }
+                    if !knowers.isEmpty {
+                        line += "; known to \(knowers.joined(separator: ", "))"
+                    }
+                    return line + ")"
                 }
-                return line + ")"
-            }
-            .joined(separator: "\n")
-        sections.append("Candidate projects (local prefilter, best first):\n\(candidates)")
+                .joined(separator: "\n")
+            sections.append("Candidate projects (local prefilter, best first):\n\(candidates)")
+        }
         sections.append("Transcript (Me = this machine's user, Them = the other side):\n\(transcript.attributedText)")
         return sections.joined(separator: "\n\n")
     }
@@ -185,17 +217,20 @@ public enum MatchingJudge {
         shortlist: [(path: String, name: String, score: Double)],
         provenance: [String: [String]] = [:],
         calendar: CalendarContext?,
+        pinnedProject: String? = nil,
         model: String? = nil,
         timeout: Duration = .seconds(240)
     ) async throws -> CallJudgment {
         let configuration = ClaudeRunConfiguration(
             prompt: prompt(
                 transcript: transcript, shortlist: shortlist,
-                provenance: provenance, calendar: calendar),
+                provenance: provenance, calendar: calendar,
+                pinnedProject: pinnedProject),
             workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
             allowedTools: ["Read", "Glob", "Grep"],
             permissionMode: "default",
-            maxTurns: 16,
+            // Pinned runs skip project deliberation, so fewer turns suffice.
+            maxTurns: pinnedProject == nil ? 16 : 10,
             jsonSchema: schema,
             model: model,
             timeout: timeout)

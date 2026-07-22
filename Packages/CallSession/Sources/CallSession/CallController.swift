@@ -46,6 +46,14 @@ public final class CallController {
     /// Audio retention (recommended default: delete WAVs once transcribed).
     public var retention = RetentionPolicy()
     private let encryption = try? EncryptionService()
+    /// Learned filing signals; fed only by confirmed write-backs.
+    @ObservationIgnored private lazy var filingMemory: FilingMemory? =
+        encryption.map { FilingMemory(encryption: $0) }
+    /// The call vector of the last processed transcript, kept for learning
+    /// when the user confirms the write-back.
+    @ObservationIgnored private var lastTranscriptVector: [Double]?
+    /// Meeting title captured at judgment time for the same purpose.
+    @ObservationIgnored private var lastMeetingTitle: String?
     @ObservationIgnored private var storeCache: SessionStore?
     private var store: SessionStore? {
         if storeCache == nil { storeCache = try? SessionStore() }
@@ -144,7 +152,26 @@ public final class CallController {
                 try? encryption.encrypt(archive, to: archiveURL)
             }
         }
+        // A confirmed write is the strongest correction signal there is:
+        // remember the meeting link and fold the call vector into this
+        // project's centroid so similar future calls boost it.
+        let anythingApplied = outcomes.contains {
+            if case .applied = $0 { true } else { false }
+        }
+        if anythingApplied {
+            if let title = lastMeetingTitle {
+                filingMemory?.rememberMeeting(title, project: projectPath)
+            }
+            if let vector = lastTranscriptVector {
+                filingMemory?.rememberVector(vector, project: projectPath)
+            }
+        }
         return outcomes
+    }
+
+    /// Forgets all learned filing signals (Settings action).
+    public func clearFilingMemory() {
+        filingMemory?.clear()
     }
 
     // MARK: - Recording
@@ -299,9 +326,25 @@ public final class CallController {
             let installed = agentRegistry.installedProviders()
             let candidates = AgentRegistry.mergedCandidates(
                 from: installed.map { $0.knownProjects() })
+            // Hybrid retrieval: keyword + calendar (in the prefilter),
+            // learned meeting links, and call-vector similarity as boosts.
+            let transcriptVector = TranscriptEmbedder.vector(for: transcript)
+            lastTranscriptVector = transcriptVector
+            lastMeetingTitle = callCalendarContext?.title
+            var boosts: [String: Double] = [:]
+            let mappedPath = callCalendarContext.flatMap {
+                filingMemory?.projectPath(forMeeting: $0.title)
+            }
+            if let mappedPath { boosts[mappedPath, default: 0] += 8 }
+            if let transcriptVector,
+               let similarities = filingMemory?.similarities(to: transcriptVector) {
+                for (path, similarity) in similarities where similarity > 0.6 {
+                    boosts[path, default: 0] += (similarity - 0.6) / 0.4 * 4
+                }
+            }
             lastMatches = Prefilter.rank(
                 candidates: candidates, transcript: transcript,
-                calendar: callCalendarContext)
+                calendar: callCalendarContext, boosts: boosts)
             // Stage 2: the routed agent's read-only judgment over the
             // shortlist. The project's provenance picks the agent, the user
             // default breaks ties, and every other installed agent is
@@ -317,6 +360,24 @@ public final class CallController {
                 if attempts.isEmpty {
                     Self.log.info("no coding agent installed — keeping transcript unfiled")
                 }
+                // Escalation gate: decisive local evidence pins the project
+                // and the agent only extracts; uncertainty pays for the
+                // full judgment.
+                let calendarAgrees = lastMatches.first.map {
+                    EscalationGate.calendarAgrees(callCalendarContext, with: $0.candidate)
+                } ?? false
+                let decision = EscalationGate.decide(
+                    ranked: lastMatches,
+                    calendarAgrees: calendarAgrees,
+                    meetingMappedPath: mappedPath)
+                let pinnedProject: String? = if case .pinned(let choice) = decision {
+                    choice.candidate.path.path
+                } else {
+                    nil
+                }
+                if pinnedProject != nil {
+                    Self.log.info("escalation gate: project pinned by local evidence")
+                }
                 let shortlist = lastMatches.map {
                     (path: $0.candidate.path.path,
                      name: $0.candidate.name,
@@ -327,13 +388,16 @@ public final class CallController {
                         ($0.candidate.path.path, Array($0.candidate.knownTo).sorted())
                     })
                 for provider in attempts {
-                    processingDetail = "Asking \(provider.displayName)…"
+                    processingDetail = pinnedProject == nil
+                        ? "Asking \(provider.displayName)…"
+                        : "Extracting with \(provider.displayName)…"
                     do {
                         var judgment = try await provider.judge(
                             transcript: transcript,
                             shortlist: shortlist,
                             provenance: provenance,
                             calendar: callCalendarContext,
+                            pinnedProject: pinnedProject,
                             model: filing.modelIntent,
                             timeout: .seconds(240))
                         judgment.filedBy = provider.id.rawValue

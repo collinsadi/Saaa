@@ -88,6 +88,22 @@ struct SaaaSettingsView: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 230)
                 }
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        Text("Filing memory")
+                            .font(SaaaFont.body)
+                            .foregroundStyle(saaa.textPrimary)
+                        Text("Learned meeting links and call similarity, sealed on this Mac. Confirmed write-backs teach it.")
+                            .font(SaaaFont.caption)
+                            .foregroundStyle(saaa.textTertiary)
+                    }
+                    Spacer()
+                    Button("Clear") { controller.clearFilingMemory() }
+                        .buttonStyle(.plain)
+                        .font(SaaaFont.body)
+                        .foregroundStyle(saaa.dangerText)
+                }
+                .padding(.vertical, Space.sm)
             }
             section("Privacy") {
                 toggleRow(
@@ -114,7 +130,7 @@ struct SaaaSettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(Space.xxl)
-        .frame(width: 460, height: invisibleMode ? 700 : 650)
+        .frame(width: 460, height: invisibleMode ? 760 : 710)
         .background(saaa.surfaceBase)
         .background(WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in

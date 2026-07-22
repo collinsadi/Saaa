@@ -141,6 +141,22 @@ public struct CandidateEnumerator: Sendable {
             hasClaudeMD: hasClaudeMD,
             hasAgentsMD: hasAgentsMD,
             profileTerms: terms,
-            knownTo: knownTo)
+            knownTo: knownTo,
+            lastGitActivity: Self.lastGitActivity(at: path))
+    }
+
+    /// Newest mtime among cheap `.git` markers — commits touch HEAD/index,
+    /// fetches touch FETCH_HEAD. Metadata only, never repo content.
+    static func lastGitActivity(at path: URL) -> Date? {
+        let gitDir = path.appendingPathComponent(".git")
+        var newest: Date?
+        for marker in ["index", "HEAD", "FETCH_HEAD"] {
+            let values = try? gitDir.appendingPathComponent(marker)
+                .resourceValues(forKeys: [.contentModificationDateKey])
+            if let date = values?.contentModificationDate {
+                newest = max(newest ?? .distantPast, date)
+            }
+        }
+        return newest
     }
 }

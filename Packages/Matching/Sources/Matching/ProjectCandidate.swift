@@ -16,12 +16,16 @@ public struct ProjectCandidate: Sendable, Equatable, Identifiable, Codable {
     public var profileTerms: [String]
     /// Raw agent ids that have session memory of this project.
     public var knownTo: Set<String>
+    /// Newest mtime among the repo's `.git` activity markers — recency is a
+    /// retrieval signal (a project touched yesterday is a likelier home
+    /// than one dormant for a year).
+    public var lastGitActivity: Date?
 
     public var id: URL { path }
 
     public init(
         path: URL, name: String, hasClaudeMD: Bool, hasAgentsMD: Bool = false,
-        profileTerms: [String], knownTo: Set<String> = []
+        profileTerms: [String], knownTo: Set<String> = [], lastGitActivity: Date? = nil
     ) {
         self.path = path
         self.name = name
@@ -29,12 +33,13 @@ public struct ProjectCandidate: Sendable, Equatable, Identifiable, Codable {
         self.hasAgentsMD = hasAgentsMD
         self.profileTerms = profileTerms
         self.knownTo = knownTo
+        self.lastGitActivity = lastGitActivity
     }
 
     // Hand-written decode so archives sealed before provenance existed
     // still open (missing fields default instead of failing).
     enum CodingKeys: String, CodingKey {
-        case path, name, hasClaudeMD, hasAgentsMD, profileTerms, knownTo
+        case path, name, hasClaudeMD, hasAgentsMD, profileTerms, knownTo, lastGitActivity
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,6 +50,7 @@ public struct ProjectCandidate: Sendable, Equatable, Identifiable, Codable {
         hasAgentsMD = try container.decodeIfPresent(Bool.self, forKey: .hasAgentsMD) ?? false
         profileTerms = try container.decode([String].self, forKey: .profileTerms)
         knownTo = try container.decodeIfPresent(Set<String>.self, forKey: .knownTo) ?? []
+        lastGitActivity = try container.decodeIfPresent(Date.self, forKey: .lastGitActivity)
     }
 }
 

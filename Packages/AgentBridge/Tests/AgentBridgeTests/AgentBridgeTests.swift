@@ -20,6 +20,7 @@ private struct FakeProvider: AgentProvider {
         shortlist: [(path: String, name: String, score: Double)],
         provenance: [String: [String]],
         calendar: CalendarContext?,
+        pinnedProject: String?,
         model: ModelIntent,
         timeout: Duration
     ) async throws -> CallJudgment {
