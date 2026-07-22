@@ -36,11 +36,22 @@ xcrun stapler staple dist/Saaa.app
 ditto -c -k --keepParent dist/Saaa.app dist/Saaa.zip
 rm dist/Saaa-notarize.zip
 
-echo "== dmg (drag-install image: app + /Applications symlink)"
-rm -rf dist/dmg-staging && mkdir dist/dmg-staging
+echo "== dmg (styled drag-install image; background via Scripts/make-dmg-background.swift)"
+rm -rf dist/dmg-staging dist/Saaa.dmg && mkdir dist/dmg-staging
 cp -R dist/Saaa.app dist/dmg-staging/Saaa.app
-ln -s /Applications dist/dmg-staging/Applications
-hdiutil create -volname "Saaa" -srcfolder dist/dmg-staging -ov -format UDZO dist/Saaa.dmg
+if command -v create-dmg >/dev/null; then
+  create-dmg --volname "Saaa" \
+    --volicon dist/dmg-staging/Saaa.app/Contents/Resources/AppIcon.icns \
+    --background Scripts/dmg-background.png \
+    --window-pos 200 160 --window-size 660 420 --icon-size 128 \
+    --icon "Saaa.app" 170 190 --app-drop-link 490 190 \
+    --text-size 12 --hide-extension "Saaa.app" --no-internet-enable \
+    dist/Saaa.dmg dist/dmg-staging
+else
+  echo "create-dmg not found (brew install create-dmg); building plain dmg"
+  ln -s /Applications dist/dmg-staging/Applications
+  hdiutil create -volname "Saaa" -srcfolder dist/dmg-staging -ov -format UDZO dist/Saaa.dmg
+fi
 codesign --force --timestamp --sign "$IDENTITY" dist/Saaa.dmg
 
 echo "== notarize + staple dmg"
