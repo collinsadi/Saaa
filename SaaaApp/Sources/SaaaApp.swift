@@ -39,6 +39,7 @@ struct SaaaApp: App {
     @State private var assistHotkey: HotkeyMonitor
     @State private var island: IslandController
     @State private var onboardingPresenter = OnboardingPresenter()
+    @State private var aboutPresenter = AboutPresenter()
     @State private var mainPresenter = MainWindowPresenter()
     @State private var importQueue = ImportQueueModel()
     @State private var codeAssist = CodeAssistModel()
@@ -150,7 +151,8 @@ struct SaaaApp: App {
                     mainPresenter.show(
                         controller: controller, importQueue: importQueue,
                         codeAssist: codeAssist, selection: hubSelection)
-                })
+                },
+                onAbout: { aboutPresenter.show() })
         } label: {
             // Brand glyph when idle; system indicators while active (the
             // consent-first visible recording state).
@@ -174,6 +176,7 @@ struct SaaaMenu: View {
     let controller: CallController
     let harness: CaptureHarness
     let onOpenHub: (HubPane?) -> Void
+    let onAbout: () -> Void
 
     var body: some View {
         statusSection
@@ -196,6 +199,9 @@ struct SaaaMenu: View {
             onOpenHub(.settings)
         }
         .keyboardShortcut(",")
+        Button("About Saaa") {
+            onAbout()
+        }
         Divider()
         Button("Quit Saaa") {
             NSApplication.shared.terminate(nil)
