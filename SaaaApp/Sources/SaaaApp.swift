@@ -39,7 +39,6 @@ struct SaaaApp: App {
     @State private var assistHotkey: HotkeyMonitor
     @State private var island: IslandController
     @State private var onboardingPresenter = OnboardingPresenter()
-    @State private var historyPresenter = HistoryPresenter()
     @State private var mainPresenter = MainWindowPresenter()
     @State private var importQueue = ImportQueueModel()
     @State private var codeAssist = CodeAssistModel()
@@ -68,6 +67,19 @@ struct SaaaApp: App {
         let codeAssist = _codeAssist.wrappedValue
         let hubSelection = _hubSelection.wrappedValue
 
+        // Queue progression is observation-driven, not view-driven: imports
+        // advance with the hub closed.
+        importQueue.bind(to: controller)
+
+        // Settings ▸ General ▸ "Run setup again".
+        let onboarding = _onboardingPresenter.wrappedValue
+        let islandRef = _island.wrappedValue
+        mainPresenter.onSetup = {
+            onboarding.show {
+                islandRef.showWelcome()
+            }
+        }
+
         // Code Assist capture from anywhere: crosshair first, then the hub
         // opens on the pane with the result.
         _codeAssistHotkey = State(initialValue: HotkeyMonitor(
@@ -83,7 +95,7 @@ struct SaaaApp: App {
 
         // Finder "Open with Saaa": hub comes up with the files queued.
         SaaaAppDelegate.openHandler = { urls in
-            hubSelection.pane = .importFiles
+            hubSelection.pane = .sessions
             mainPresenter.show(
                 controller: controller, importQueue: importQueue,
                 codeAssist: codeAssist, selection: hubSelection)
@@ -93,12 +105,10 @@ struct SaaaApp: App {
         // First run: the guided bootstrap (permissions, model, claude).
         if !UserDefaults.standard.bool(forKey: "onboardingComplete"),
            !CommandLine.arguments.contains("--selftest") {
-            let onboarding = onboardingPresenter
-            let island = _island.wrappedValue
             Task { @MainActor in
                 onboarding.show {
                     UserDefaults.standard.set(true, forKey: "onboardingComplete")
-                    island.showWelcome()
+                    islandRef.showWelcome()
                 }
             }
         }
@@ -133,14 +143,10 @@ struct SaaaApp: App {
         MenuBarExtra {
             SaaaMenu(
                 controller: controller, harness: harness,
-                onSetup: {
-                    let island = island
-                    onboardingPresenter.show {
-                        island.showWelcome()
+                onOpenHub: { pane in
+                    if let pane {
+                        hubSelection.pane = pane
                     }
-                },
-                onHistory: { historyPresenter.show() },
-                onOpenHub: {
                     mainPresenter.show(
                         controller: controller, importQueue: importQueue,
                         codeAssist: codeAssist, selection: hubSelection)
@@ -157,22 +163,17 @@ struct SaaaApp: App {
                 Image("MenuBarIcon")
             }
         }
-        Settings {
-            SaaaSettingsView(controller: controller)
-                .saaaThemed()
-        }
     }
 
 }
 
-/// The Phase-4 menu: session state + Start/Stop, the silence prompt, and the
-/// capture harness tucked into a debug submenu.
+/// The menu-bar menu (UI-PLAN §4.9): status narration, then one entry per
+/// destination — every hub entry routes through the same pane-forcing hub
+/// opener. "Run setup again" lives in Settings ▸ General.
 struct SaaaMenu: View {
     let controller: CallController
     let harness: CaptureHarness
-    let onSetup: () -> Void
-    let onHistory: () -> Void
-    let onOpenHub: () -> Void
+    let onOpenHub: (HubPane?) -> Void
 
     var body: some View {
         statusSection
@@ -184,20 +185,18 @@ struct SaaaMenu: View {
         Divider()
         #endif
         Button("Open Saaa…") {
-            onOpenHub()
+            onOpenHub(nil)
         }
         .keyboardShortcut("o")
         Button("History…") {
-            onHistory()
+            onOpenHub(.history)
         }
         .keyboardShortcut("y")
-        SettingsLink {
-            Text("Settings…")
+        Button("Settings…") {
+            onOpenHub(.settings)
         }
         .keyboardShortcut(",")
-        Button("Run Setup…") {
-            onSetup()
-        }
+        Divider()
         Button("Quit Saaa") {
             NSApplication.shared.terminate(nil)
         }
@@ -382,10 +381,5 @@ struct HarnessMenu: View {
             Text("Failed: \(message)").lineLimit(3)
             Button("Try again") { harness.reset() }
         }
-        Divider()
-        Button("Quit Saaa") {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
     }
 }

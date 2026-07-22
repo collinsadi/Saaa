@@ -21,17 +21,25 @@ final class ReviewWindowPresenter {
             context: context,
             onClose: { [weak self] in
                 self?.window?.close()
-                self?.window = nil
                 controller.reviewClosed(context)
             })
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
+        // sizingOptions=[] and contentMinSize land together — one without the
+        // other pins the height while the width stays free.
+        hosting.sizingOptions = []
+        // Reuse one window across reviews: no orphan windows piling up.
+        let window = self.window ?? NSWindow(contentViewController: hosting)
+        window.contentViewController = hosting
         window.title = "Saaa Review"
-        window.setContentSize(NSSize(width: 880, height: 640))
         window.styleMask = [.titled, .closable, .resizable]
+        window.contentMinSize = NSSize(width: 760, height: 520)
         window.isReleasedWhenClosed = false
-        window.center()
+        WindowChrome.applySeamless(to: window)
+        if self.window == nil {
+            window.setContentSize(NSSize(width: 880, height: 640))
+            window.center()
+        }
         self.window = window
         CaptureExclusion.shared.register(window, as: .review)
         WindowFront.present(window)
@@ -54,11 +62,14 @@ private struct ReviewView: View {
         HStack(alignment: .top, spacing: 0) {
             transcriptPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider()
+                .overlay(saaa.borderHairline)
+                .ignoresSafeArea(edges: .top)
             rail
                 .frame(width: Size.panelWidth)
                 .padding(Space.lg)
         }
-        .background(saaa.surfaceBase)
+        .background(saaa.surfaceBase.ignoresSafeArea())
         .onAppear {
             guard !seeded else { return }
             seeded = true
@@ -100,6 +111,7 @@ private struct ReviewView: View {
                     .padding(.top, Space.sm)
             }
             .padding(Space.xxl)
+            .frame(maxWidth: Size.transcriptColumnMax, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -137,7 +149,7 @@ private struct ReviewView: View {
                     .font(SaaaFont.monoCaption)
                     .foregroundStyle(saaa.textTertiary)
                     .lineLimit(1)
-                confidenceRow(judgment.match.confidence)
+                ConfidenceRow(confidence: judgment.match.confidence)
                 if let agent = judgment.filedBy {
                     Text("judged by \(AgentID(rawValue: agent)?.displayName ?? agent)")
                         .font(SaaaFont.monoCaption)
@@ -158,38 +170,13 @@ private struct ReviewView: View {
                     Text("Closest guess: \(URL(filePath: path).lastPathComponent) at \(Int(judgment.match.confidence * 100))%, below the filing bar")
                         .font(SaaaFont.callout)
                         .foregroundStyle(saaa.textSecondary)
-                    confidenceRow(judgment.match.confidence)
+                    ConfidenceRow(confidence: judgment.match.confidence)
                 }
                 Text("The transcript is kept (sealed); nothing will be written to any repo.")
                     .font(SaaaFont.callout)
                     .foregroundStyle(saaa.textSecondary)
             }
         }
-    }
-
-    /// Confidence per the state grammar: numeral + worded tier + segmented
-    /// meter — never a bare traffic light.
-    private func confidenceRow(_ confidence: Double) -> some View {
-        let tier = confidence >= 0.75 ? "high" : confidence >= 0.45 ? "medium" : "low"
-        let color = confidence >= 0.75
-            ? saaa.confidenceHigh : confidence >= 0.45
-            ? saaa.confidenceMedium : saaa.confidenceLow
-        return HStack(spacing: Space.sm) {
-            Text(String(format: "%.2f", confidence))
-                .font(SaaaFont.readoutValue)
-                .foregroundStyle(saaa.textPrimary)
-            Text(tier).engravedLabelStyle().foregroundStyle(color)
-            HStack(spacing: 2) {
-                ForEach(0..<6, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 1)
-                        .fill(Double(index) < confidence * 6 ? color : saaa.surfaceInset)
-                        .frame(width: 14, height: 4)
-                }
-            }
-            .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Confidence \(Int(confidence * 100)) percent, \(tier)")
     }
 
     private func contextCard(index: Int, item: CallJudgment.ExtractedItem) -> some View {
@@ -215,7 +202,7 @@ private struct ReviewView: View {
             if let target = targetFile(for: index) {
                 Text("writes to: \(target)")
                     .font(SaaaFont.monoCaption)
-                    .foregroundStyle(saaa.tideText)
+                    .foregroundStyle(saaa.textSecondary)
             }
         }
         .opacity(approved.contains(index) || outcomes != nil ? 1 : 0.55)

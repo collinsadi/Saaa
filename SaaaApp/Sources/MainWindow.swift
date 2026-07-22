@@ -8,17 +8,32 @@ import UniformTypeIdentifiers
 
 /// Which hub pane is showing; externally settable so a hotkey can land the
 /// user on a specific pane (Code Assist capture opens with its result).
+/// The last pane persists across launches; unknown stored values fall back
+/// to Sessions through the failable rawValue initializer.
 @MainActor
 @Observable
 final class HubSelection {
-    var pane: HubPane = .importFiles
+    private static let paneKey = "hubPane"
+
+    var pane: HubPane {
+        didSet { UserDefaults.standard.set(pane.rawValue, forKey: Self.paneKey) }
+    }
+
+    init() {
+        pane = UserDefaults.standard.string(forKey: Self.paneKey)
+            .flatMap(HubPane.init(rawValue:)) ?? .sessions
+    }
 }
 
-/// The launchable hub window (issue #3): import, history, and settings in
-/// one place, complementing the ambient island. While the hub is open the
-/// app has a Dock presence; closing it returns Saaa to a menu-bar accessory.
+/// The launchable hub window: one sidebar, five panes — Sessions, Code
+/// Assist, Prompts, History, Settings — complementing the ambient island.
+/// While the hub is open the app has a Dock presence; closing it returns
+/// Saaa to a menu-bar accessory.
 @MainActor
 final class MainWindowPresenter {
+
+    /// Wired once at launch: Settings ▸ General ▸ "Run setup again".
+    var onSetup: () -> Void = {}
 
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
@@ -36,7 +51,8 @@ final class MainWindowPresenter {
         }
         let view = MainHubView(
             controller: controller, importQueue: importQueue,
-            codeAssist: codeAssist, selection: selection)
+            codeAssist: codeAssist, selection: selection,
+            onSetup: { [weak self] in self?.onSetup() })
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
         // Never let SwiftUI's reported ideal size become window resize
@@ -53,6 +69,7 @@ final class MainWindowPresenter {
         // cards stay at full strength while the base material fades.
         window.isOpaque = false
         window.backgroundColor = .clear
+        WindowChrome.applySeamless(to: window)
         window.center()
         self.window = window
         CaptureExclusion.shared.register(window, as: .main)
@@ -73,7 +90,8 @@ final class MainWindowPresenter {
 
 /// Sequential import queue: one file at a time through the live-call
 /// pipeline, each ending in Review & Edit; the next starts when the
-/// controller returns to idle.
+/// controller returns to idle. Progression is driven by observation of the
+/// controller, not by any view — imports advance with the hub closed.
 @MainActor
 @Observable
 final class ImportQueueModel {
@@ -94,8 +112,29 @@ final class ImportQueueModel {
     private(set) var items: [Item] = []
     var context = CallController.ImportContext()
     private var currentID: UUID?
+    private var boundController: CallController?
 
     var hasPending: Bool { items.contains { $0.status == .waiting } }
+
+    /// Wires queue progression to the controller's state, once, at launch.
+    func bind(to controller: CallController) {
+        guard boundController == nil else { return }
+        boundController = controller
+        observeState()
+    }
+
+    private func observeState() {
+        guard let controller = boundController else { return }
+        withObservationTracking {
+            _ = controller.state
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, let controller = self.boundController else { return }
+                self.stateChanged(controller.state, controller: controller)
+                self.observeState()
+            }
+        }
+    }
 
     /// Adds dropped/picked URLs (folders expand one level, importable
     /// files only) and starts the queue when the controller is free.
@@ -150,8 +189,7 @@ final class ImportQueueModel {
 // MARK: - Hub view
 
 enum HubPane: String, CaseIterable, Identifiable {
-    case importFiles
-    case queue
+    case sessions
     case codeAssist
     case prompts
     case history
@@ -161,12 +199,22 @@ enum HubPane: String, CaseIterable, Identifiable {
 
     var label: (title: String, icon: String) {
         switch self {
-        case .importFiles: ("Import", "square.and.arrow.down")
-        case .queue: ("Queue", "tray.full")
+        case .sessions: ("Sessions", "waveform")
         case .codeAssist: ("Code Assist", "chevron.left.forwardslash.chevron.right")
         case .prompts: ("Prompts", "text.quote")
         case .history: ("History", "clock")
         case .settings: ("Settings", "gearshape")
+        }
+    }
+
+    /// ⌘1–⌘5, in sidebar order.
+    var shortcut: KeyEquivalent {
+        switch self {
+        case .sessions: "1"
+        case .codeAssist: "2"
+        case .prompts: "3"
+        case .history: "4"
+        case .settings: "5"
         }
     }
 }
@@ -176,6 +224,7 @@ struct MainHubView: View {
     let importQueue: ImportQueueModel
     let codeAssist: CodeAssistModel
     @Bindable var selection: HubSelection
+    let onSetup: () -> Void
 
     @Environment(\.saaa) private var saaa
     @Environment(\.controlActiveState) private var activeState
@@ -191,19 +240,20 @@ struct MainHubView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 190)
-            Divider().overlay(saaa.borderHairline)
+                .frame(width: Size.sidebarWidth)
+            Divider()
+                .overlay(saaa.borderHairline)
+                .ignoresSafeArea(edges: .top)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(saaa.surfaceBase.opacity(HubOpacityPolicy.effective(
-            userOpacity: hubOpacity,
-            reduceTransparency: reduceTransparency,
-            isInactive: activeState == .inactive,
-            fadeWhenInactive: fadeWhenInactive)))
-        .onChange(of: controller.state) { _, newState in
-            importQueue.stateChanged(newState, controller: controller)
-        }
+        .background(
+            saaa.surfaceBase.opacity(HubOpacityPolicy.effective(
+                userOpacity: hubOpacity,
+                reduceTransparency: reduceTransparency,
+                isInactive: activeState == .inactive,
+                fadeWhenInactive: fadeWhenInactive))
+                .ignoresSafeArea())
     }
 
     private var sidebar: some View {
@@ -215,9 +265,9 @@ struct MainHubView: View {
                     .foregroundStyle(saaa.textPrimary)
                 Spacer()
             }
+            .padding(.bottom, Space.sm)
             InvisibleModeBadge(surface: .main)
                 .padding(.bottom, Space.sm)
-            .padding(.bottom, Space.xl)
             ForEach(HubPane.allCases) { item in
                 Button {
                     selection.pane = item
@@ -228,6 +278,9 @@ struct MainHubView: View {
                         Text(item.label.title)
                             .font(SaaaFont.body)
                         Spacer()
+                        Text("⌘\(String(item.shortcut.character))")
+                            .font(SaaaFont.monoCaption)
+                            .foregroundStyle(saaa.textTertiary)
                     }
                     .foregroundStyle(pane == item ? saaa.tideText : saaa.textSecondary)
                     .padding(.horizontal, Space.md)
@@ -238,6 +291,8 @@ struct MainHubView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(item.shortcut, modifiers: .command)
+                .accessibilityAddTraits(pane == item ? .isSelected : [])
             }
             Spacer()
         }
@@ -247,172 +302,20 @@ struct MainHubView: View {
     @ViewBuilder
     private var content: some View {
         switch pane {
-        case .importFiles:
-            ImportPane(controller: controller, queue: importQueue)
-        case .queue:
-            ProcessingQueuePane(controller: controller)
+        case .sessions:
+            SessionsPane(controller: controller, queue: importQueue)
         case .codeAssist:
             CodeAssistPane(controller: controller, model: codeAssist)
         case .prompts:
             PromptsPane(controller: controller)
         case .history:
-            HistoryView(embedded: true)
+            HistoryPane()
         case .settings:
             ScrollView {
-                HStack {
-                    Spacer(minLength: 0)
-                    SaaaSettingsView(controller: controller, embedded: true)
-                    Spacer(minLength: 0)
-                }
+                SaaaSettingsView(controller: controller, onSetup: onSetup)
+                    .frame(maxWidth: Size.contentColumnMax, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-    }
-}
-
-// MARK: - Import pane
-
-private struct ImportPane: View {
-    let controller: CallController
-    let queue: ImportQueueModel
-
-    @Environment(\.saaa) private var saaa
-    @State private var pickerPresented = false
-    @State private var dropTargeted = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
-            Text("Import a recording")
-                .font(SaaaFont.title2)
-                .foregroundStyle(saaa.textPrimary)
-            Text("Audio or video runs through the same pipeline as a live call: transcribed on this Mac, matched, reviewed, and sealed. Stereo files keep their two sides; mono files import as one speaker. Only import recordings everyone consented to.")
-                .font(SaaaFont.callout)
-                .foregroundStyle(saaa.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            contextFields
-            dropZone
-
-            if !queue.items.isEmpty {
-                queueList
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(Space.xxl)
-        .fileImporter(
-            isPresented: $pickerPresented,
-            allowedContentTypes: [.audio, .movie, .folder],
-            allowsMultipleSelection: true
-        ) { result in
-            if case .success(let urls) = result {
-                queue.add(urls, controller: controller)
-            }
-        }
-    }
-
-    private var contextFields: some View {
-        HStack(spacing: Space.md) {
-            field("Context title (optional)", text: Binding(
-                get: { queue.context.title },
-                set: { queue.context.title = $0 }))
-            field("Attendees, comma-separated (optional)", text: Binding(
-                get: { queue.context.attendees },
-                set: { queue.context.attendees = $0 }))
-        }
-    }
-
-    private func field(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField(placeholder, text: text)
-            .textFieldStyle(.plain)
-            .font(SaaaFont.body)
-            .foregroundStyle(saaa.textPrimary)
-            .padding(.horizontal, Space.md)
-            .frame(height: Size.controlLg)
-            .background(RoundedRectangle(cornerRadius: Radius.md).fill(saaa.surfaceInset))
-    }
-
-    private var dropZone: some View {
-        VStack(spacing: Space.sm) {
-            Image(systemName: "square.and.arrow.down")
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(dropTargeted ? saaa.tideText : saaa.textTertiary)
-            Text("Drop audio or video here")
-                .font(SaaaFont.bodyEmphasis)
-                .foregroundStyle(saaa.textPrimary)
-            Button("Browse…") { pickerPresented = true }
-                .buttonStyle(.plain)
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.tideText)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 170)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg)
-                .fill(dropTargeted ? saaa.surfaceInset : saaa.surfaceRaised))
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg)
-                .strokeBorder(
-                    dropTargeted ? saaa.tideFill : saaa.borderHairline,
-                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
-        .dropDestination(for: URL.self) { urls, _ in
-            queue.add(urls, controller: controller)
-            return true
-        } isTargeted: { dropTargeted = $0 }
-    }
-
-    private var queueList: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            HStack {
-                Text("Queue").engravedLabelStyle().foregroundStyle(saaa.textTertiary)
-                Spacer()
-                Button("Clear finished") { queue.clearFinished() }
-                    .buttonStyle(.plain)
-                    .font(SaaaFont.caption)
-                    .foregroundStyle(saaa.textTertiary)
-            }
-            ScrollView {
-                VStack(spacing: Space.xs) {
-                    ForEach(queue.items) { item in
-                        queueRow(item)
-                    }
-                }
-            }
-        }
-    }
-
-    private func queueRow(_ item: ImportQueueModel.Item) -> some View {
-        HStack(spacing: Space.md) {
-            Image(systemName: "waveform")
-                .foregroundStyle(saaa.textTertiary)
-            Text(item.url.lastPathComponent)
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.textPrimary)
-                .lineLimit(1)
-            Spacer()
-            statusChip(item.status)
-        }
-        .padding(.horizontal, Space.md)
-        .frame(height: Size.controlLg)
-        .background(RoundedRectangle(cornerRadius: Radius.md).fill(saaa.surfaceRaised))
-    }
-
-    @ViewBuilder
-    private func statusChip(_ status: ImportQueueModel.ItemStatus) -> some View {
-        switch status {
-        case .waiting:
-            Text("waiting").engravedLabelStyle().foregroundStyle(saaa.textTertiary)
-        case .processing:
-            Text(controller.processingDetail.isEmpty ? "processing" : controller.processingDetail)
-                .font(SaaaFont.monoCaption)
-                .foregroundStyle(saaa.tideText)
-                .lineLimit(1)
-        case .done:
-            Text("done").engravedLabelStyle().foregroundStyle(saaa.successText)
-        case .failed(let message):
-            Text(message)
-                .font(SaaaFont.monoCaption)
-                .foregroundStyle(saaa.dangerText)
-                .lineLimit(1)
-                .help(message)
         }
     }
 }

@@ -152,27 +152,26 @@ struct CodeAssistPane: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.lg) {
-                Text("Code Assist")
-                    .font(SaaaFont.title2)
-                    .foregroundStyle(saaa.textPrimary)
-                Text("Capture a region of your screen with the system crosshair; its text is read on this Mac (the screenshot is deleted immediately) and only that text goes to your agent. For your own development, debugging, and practice.")
-                    .font(SaaaFont.callout)
-                    .foregroundStyle(saaa.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            PaneColumn {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    PaneHeader(
+                        title: "Code Assist",
+                        subtitle: "Capture a screen region and ask your agent.",
+                        help: "The crosshair screenshot is read on this Mac and deleted immediately; only its text goes to your agent. For your own development, debugging, and practice.")
 
-                if enabled {
-                    controls
-                    outcome
-                } else {
-                    Text("Code Assist is off. Enable it in Settings, then capture with ⇧⌥⌘C or the button here.")
-                        .font(SaaaFont.body)
-                        .foregroundStyle(saaa.textTertiary)
+                    if enabled {
+                        controls
+                        outcome
+                    } else {
+                        PaneEmptyState(
+                            headline: "Code Assist is off",
+                            guidance: "Turn it on in Settings, then capture and it lands here.",
+                            hotkey: "⇧⌥⌘C")
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(Space.xxl)
             }
-            .padding(Space.xxl)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { knownProjects = controller.knownProjectPaths() }
     }
@@ -205,7 +204,8 @@ struct CodeAssistPane: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 240)
+                .fixedSize()
+                HelpDot("Nudge asks one Socratic question. Approach outlines the idea. Full works it through. A codebase grounds the help in your real files with read-only tools.")
             }
             HStack(spacing: Space.md) {
                 TextField("Question (optional)", text: Binding(
@@ -226,11 +226,8 @@ struct CodeAssistPane: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 200)
+                .fixedSize()
             }
-            Text("Nudge asks one Socratic question. Approach outlines the idea. Full works it through. A codebase grounds the help in your real files with read-only tools.")
-                .font(SaaaFont.caption)
-                .foregroundStyle(saaa.textTertiary)
         }
     }
 

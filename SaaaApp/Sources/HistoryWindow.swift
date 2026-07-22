@@ -6,30 +6,11 @@ import DesignSystem
 import Persistence
 import SwiftUI
 
-/// Session history: revisit past calls — when, how long, where they were
-/// filed, what was written where. Metadata comes from the store; content is
-/// decrypted on selection only. Deletion is explicit and confirmed.
-@MainActor
-final class HistoryPresenter {
-
-    private var window: NSWindow?
-
-    func show() {
-        let view = HistoryView().saaaThemed()
-        let hosting = NSHostingController(rootView: view)
-        let window = self.window ?? NSWindow(contentViewController: hosting)
-        window.contentViewController = hosting
-        window.title = "Saaa History"
-        window.setContentSize(NSSize(width: 860, height: 560))
-        window.styleMask = [.titled, .closable, .resizable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        self.window = window
-        CaptureExclusion.shared.register(window, as: .history)
-        WindowFront.present(window)
-    }
-}
-
+/// Session history as a hub pane (UI-PLAN §4.4): the call list IS the pane
+/// content; selecting a row pushes the detail full-pane with a back
+/// affordance (and Esc). No second sidebar, no standalone window — ⌘Y opens
+/// the hub on this pane. Metadata comes from the store; content is decrypted
+/// on selection only. Deletion is explicit and confirmed.
 @MainActor
 @Observable
 final class HistoryModel {
@@ -68,6 +49,12 @@ final class HistoryModel {
         }
     }
 
+    func deselect() {
+        selected = nil
+        selectedArchive = nil
+        loadError = nil
+    }
+
     func delete(_ row: SessionStore.Row) {
         Task {
             try? await store?.delete(id: row.id)
@@ -81,24 +68,20 @@ final class HistoryModel {
     }
 }
 
-struct HistoryView: View {
-    /// True inside the hub, whose translucent base must show through.
-    var embedded = false
-
+struct HistoryPane: View {
     @Environment(\.saaa) private var saaa
     @State private var model = HistoryModel()
     @State private var pendingDelete: SessionStore.Row?
     @State private var exportShown = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            sessionList
-                .frame(width: 300)
-            Divider().overlay(saaa.borderHairline)
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        Group {
+            if model.selected != nil {
+                detail
+            } else {
+                list
+            }
         }
-        .background(embedded ? AnyShapeStyle(.clear) : AnyShapeStyle(saaa.surfaceBase))
         .onAppear { model.reload() }
         .confirmationDialog(
             "Delete this call?",
@@ -126,92 +109,83 @@ struct HistoryView: View {
         }
     }
 
-    // MARK: - List
+    // MARK: - List (the pane content — full-width rows, no sidebar styling)
 
-    private var sessionList: some View {
+    private var list: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.xs) {
-                HStack(spacing: Space.sm) {
-                    BrandMark(size: 13)
-                    Text("Calls")
-                        .font(SaaaFont.headline)
+            PaneColumn {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    PaneHeader(
+                        title: "Calls",
+                        subtitle: "Every reviewed call, sealed on this Mac.")
+                    if model.rows.isEmpty {
+                        PaneEmptyState(
+                            headline: "No calls yet",
+                            guidance: "Record a call and it lands here.",
+                            hotkey: "⌥⌘R")
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(model.rows) { row in
+                                listRow(row)
+                            }
+                        }
+                    }
+                }
+                .padding(Space.xxl)
+            }
+        }
+    }
+
+    private func listRow(_ row: SessionStore.Row) -> some View {
+        Button {
+            model.select(row)
+        } label: {
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.startedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(SaaaFont.bodyEmphasis)
                         .foregroundStyle(saaa.textPrimary)
                     Spacer()
-                    InvisibleModeBadge(surface: .history)
+                    Text(duration(row.duration))
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.textTertiary)
                 }
-                .padding(.horizontal, Space.md)
-                .padding(.bottom, Space.sm)
-                if model.rows.isEmpty {
-                    emptyState
-                }
-                ForEach(model.rows) { row in
-                    Button {
-                        model.select(row)
-                    } label: {
-                        rowView(row)
+                HStack(spacing: Space.sm) {
+                    if let project = row.projectPath {
+                        Text(URL(filePath: project).lastPathComponent)
+                            .font(SaaaFont.caption)
+                            .foregroundStyle(saaa.textSecondary)
+                    } else {
+                        Text("unfiled")
+                            .font(SaaaFont.caption)
+                            .foregroundStyle(saaa.textTertiary)
                     }
-                    .buttonStyle(.plain)
+                    if let type = row.callType {
+                        Text(type.replacingOccurrences(of: "_", with: " "))
+                            .font(SaaaFont.caption)
+                            .foregroundStyle(saaa.textTertiary)
+                    }
                 }
             }
-            .padding(Space.md)
+            .padding(.vertical, Space.sm + 2)
+            .padding(.horizontal, Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) {
+            Divider().overlay(saaa.borderHairline.opacity(0.6))
         }
     }
 
-    private func rowView(_ row: SessionStore.Row) -> some View {
-        VStack(alignment: .leading, spacing: Space.xxs) {
-            HStack {
-                Text(row.startedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(SaaaFont.bodyEmphasis)
-                    .foregroundStyle(saaa.textPrimary)
-                Spacer()
-                Text(duration(row.duration))
-                    .font(SaaaFont.monoCaption)
-                    .foregroundStyle(saaa.textTertiary)
-            }
-            HStack(spacing: Space.sm) {
-                if let project = row.projectPath {
-                    Text(URL(filePath: project).lastPathComponent)
-                        .font(SaaaFont.caption)
-                        .foregroundStyle(saaa.tideText)
-                } else {
-                    Text("unfiled")
-                        .font(SaaaFont.caption)
-                        .foregroundStyle(saaa.textTertiary)
-                }
-                if let type = row.callType {
-                    Text(type.replacingOccurrences(of: "_", with: " "))
-                        .font(SaaaFont.caption)
-                        .foregroundStyle(saaa.textTertiary)
-                }
-            }
-        }
-        .padding(Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(model.selected?.id == row.id ? saaa.surfaceInset : .clear))
-        .contentShape(Rectangle())
-    }
-
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            Text("No calls yet")
-                .font(SaaaFont.headline)
-                .foregroundStyle(saaa.textPrimary)
-            Text("Press ⌥⌘R during a call. Every processed recording lands here.")
-                .font(SaaaFont.callout)
-                .foregroundStyle(saaa.textSecondary)
-        }
-        .padding(Space.lg)
-    }
-
-    // MARK: - Detail
+    // MARK: - Detail (pushed full-pane; back or Esc pops)
 
     @ViewBuilder
     private var detail: some View {
         if let row = model.selected {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.lg) {
+                    detailToolbar
                     detailHeader(row)
                     if let error = model.loadError {
                         Text(error)
@@ -223,30 +197,27 @@ struct HistoryView: View {
                     }
                 }
                 .padding(Space.xxl)
+                .frame(maxWidth: Size.transcriptColumnMax, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-        } else {
-            VStack {
-                Spacer()
-                Text(model.rows.isEmpty ? "" : "Select a call to revisit it")
-                    .font(SaaaFont.body)
-                    .foregroundStyle(saaa.textTertiary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
+            .onExitCommand { pop() }
         }
     }
 
-    private func detailHeader(_ row: SessionStore.Row) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(row.startedAt.formatted(date: .complete, time: .shortened))
-                    .font(SaaaFont.title2)
-                    .foregroundStyle(saaa.textPrimary)
-                Text("\(duration(row.duration)) · audio \(row.audioRetained ? "retained" : "deleted after transcription")")
-                    .font(SaaaFont.monoCaption)
-                    .foregroundStyle(saaa.textTertiary)
+    private func pop() {
+        withAnimation(Motion.standard) { model.deselect() }
+    }
+
+    private var detailToolbar: some View {
+        HStack(spacing: Space.md) {
+            Button {
+                pop()
+            } label: {
+                Text("‹ Calls")
+                    .font(SaaaFont.body)
+                    .foregroundStyle(saaa.tideText)
             }
+            .buttonStyle(.plain)
             Spacer()
             if model.selectedArchive != nil {
                 Button {
@@ -257,16 +228,28 @@ struct HistoryView: View {
                         .foregroundStyle(saaa.tideText)
                 }
                 .buttonStyle(.plain)
-                .padding(.trailing, Space.md)
             }
-            Button {
-                pendingDelete = row
-            } label: {
-                Text("Delete…")
-                    .font(SaaaFont.body)
-                    .foregroundStyle(saaa.dangerText)
+            if let row = model.selected {
+                Button {
+                    pendingDelete = row
+                } label: {
+                    Text("Delete…")
+                        .font(SaaaFont.body)
+                        .foregroundStyle(saaa.dangerText)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+        }
+    }
+
+    private func detailHeader(_ row: SessionStore.Row) -> some View {
+        VStack(alignment: .leading, spacing: Space.xxs) {
+            Text(row.startedAt.formatted(date: .complete, time: .shortened))
+                .font(SaaaFont.title2)
+                .foregroundStyle(saaa.textPrimary)
+            Text("\(duration(row.duration)) · audio \(row.audioRetained ? "retained" : "deleted after transcription")")
+                .font(SaaaFont.monoCaption)
+                .foregroundStyle(saaa.textTertiary)
         }
     }
 
@@ -278,6 +261,7 @@ struct HistoryView: View {
                 Text(URL(filePath: path).lastPathComponent)
                     .font(SaaaFont.bodyEmphasis)
                     .foregroundStyle(saaa.textPrimary)
+                ConfidenceRow(confidence: judgment.match.confidence)
                 Text(filedToDetail(judgment))
                     .font(SaaaFont.monoCaption)
                     .foregroundStyle(saaa.textTertiary)
@@ -302,6 +286,31 @@ struct HistoryView: View {
                     Text(calendar.attendees.joined(separator: ", "))
                         .font(SaaaFont.caption)
                         .foregroundStyle(saaa.textTertiary)
+                }
+            }
+        }
+        if let thread = archive.assistThread, !thread.isEmpty {
+            historyCard("Live Assist") {
+                ForEach(Array(thread.enumerated()), id: \.offset) { _, entry in
+                    VStack(alignment: .leading, spacing: Space.xxs) {
+                        HStack(spacing: Space.sm) {
+                            Text(entry.role == "ask" ? "You asked" : (entry.mode ?? "Assist"))
+                                .font(SaaaFont.monoCaption)
+                                .foregroundStyle(
+                                    entry.role == "ask" ? saaa.textTertiary : saaa.textSecondary)
+                            Text(entry.at.formatted(date: .omitted, time: .shortened))
+                                .font(SaaaFont.monoCaption)
+                                .foregroundStyle(saaa.textTertiary)
+                        }
+                        if entry.role != "failed" {
+                            Text(entry.text)
+                                .font(SaaaFont.body)
+                                .foregroundStyle(
+                                    entry.role == "ask" ? saaa.textSecondary : saaa.textPrimary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
             }
         }
@@ -343,7 +352,7 @@ struct HistoryView: View {
     }
 
     private func filedToDetail(_ judgment: CallJudgment) -> String {
-        var detail = "\(Int(judgment.match.confidence * 100))% · \(judgment.callType.replacingOccurrences(of: "_", with: " "))"
+        var detail = judgment.callType.replacingOccurrences(of: "_", with: " ")
         if let agent = judgment.filedBy {
             detail += " · \(AgentID(rawValue: agent)?.displayName ?? agent)"
         }

@@ -53,24 +53,22 @@ struct PromptsPane: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.lg) {
-                Text("Custom prompts")
-                    .font(SaaaFont.title2)
-                    .foregroundStyle(saaa.textPrimary)
-                Text("Vocabulary primes local transcription toward your names and jargon. Filing instructions shape how the agent classifies and extracts. Both are sealed on this Mac.")
-                    .font(SaaaFont.callout)
-                    .foregroundStyle(saaa.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            PaneColumn {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    PaneHeader(
+                        title: "Custom prompts",
+                        subtitle: "Tune transcription and filing in your own words.",
+                        help: "Vocabulary primes local transcription toward your names and jargon. Filing instructions shape how the agent classifies and extracts. Both are sealed on this Mac.")
 
-                pickers
-                editor
-                footerRow
-                if previewShown {
-                    preview
+                    pickers
+                    editor
+                    footerRow
+                    if previewShown {
+                        preview
+                    }
                 }
+                .padding(Space.xxl)
             }
-            .padding(Space.xxl)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             knownProjects = controller.knownProjectPaths()
@@ -90,24 +88,17 @@ struct PromptsPane: View {
 
     private var pickers: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            HStack(spacing: Space.md) {
-                Picker("", selection: $kind) {
-                    Text("Filing instructions").tag(PromptKind.filing)
-                    Text("Vocabulary").tag(PromptKind.vocabulary)
-                    Text("Live Assist").tag(PromptKind.liveAssist)
+            // Natural-width segmented pickers on a wrapping row — nothing
+            // clips at narrow hub widths (R1/R2).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Space.md) {
+                    kindPicker
+                    scopePicker
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 380)
-                Picker("", selection: $scope) {
-                    ForEach(availableScopes) { choice in
-                        Text(choice.label).tag(choice)
-                    }
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    kindPicker
+                    scopePicker
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: kind == .liveAssist ? 200 : 320)
-                Spacer()
             }
             if scope == .project {
                 Picker("", selection: $projectPath) {
@@ -116,7 +107,7 @@ struct PromptsPane: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 320)
+                .fixedSize()
             }
             if scope == .callType {
                 Picker("", selection: $callType) {
@@ -126,12 +117,34 @@ struct PromptsPane: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 440)
+                .fixedSize()
             }
             Text(scopeCaption)
                 .font(SaaaFont.caption)
                 .foregroundStyle(saaa.textTertiary)
         }
+    }
+
+    private var kindPicker: some View {
+        Picker("", selection: $kind) {
+            Text("Filing instructions").tag(PromptKind.filing)
+            Text("Vocabulary").tag(PromptKind.vocabulary)
+            Text("Live Assist").tag(PromptKind.liveAssist)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    private var scopePicker: some View {
+        Picker("", selection: $scope) {
+            ForEach(availableScopes) { choice in
+                Text(choice.label).tag(choice)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
     }
 
     private var editor: some View {

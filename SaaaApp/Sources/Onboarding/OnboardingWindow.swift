@@ -19,6 +19,7 @@ final class OnboardingPresenter {
         .saaaThemed()
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
+        WindowChrome.applySeamless(to: window)
         window.title = "Welcome to Saaa"
         window.setContentSize(NSSize(width: 540, height: 600))
         window.styleMask = [.titled, .closable]
