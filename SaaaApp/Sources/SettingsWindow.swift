@@ -29,6 +29,7 @@ struct SaaaSettingsView: View {
     @AppStorage(LiveAssistController.enabledKey) private var liveAssistEnabled = false
     @AppStorage(LiveAssistController.autoAnswerKey) private var liveAssistAuto = false
     @AppStorage(LiveAssistController.knowledgeFolderKey) private var liveAssistKB = ""
+    @AppStorage(CodeAssistModel.enabledKey) private var codeAssistEnabled = false
 
     var body: some View {
         if embedded {
@@ -166,6 +167,12 @@ struct SaaaSettingsView: View {
                         .font(SaaaFont.caption)
                         .foregroundStyle(saaa.textTertiary)
                 }
+            }
+            section("Code Assist") {
+                toggleRow(
+                    "Enable Code Assist (advanced)",
+                    caption: "⇧⌥⌘C captures a screen region YOU select with the system crosshair. The screenshot is read on this Mac and deleted; only its text goes to your agent. Screen content is sensitive, so this stays off until you turn it on. For your own development and practice, not for concealing help in evaluated settings.",
+                    isOn: $codeAssistEnabled)
             }
             section("Privacy") {
                 toggleRow(

@@ -304,3 +304,43 @@ private let codex = FakeProvider(id: .codex)
         #expect(!prompt.contains("User context"))
     }
 }
+
+// MARK: - Code assist
+
+@Suite struct CodeAssistTests {
+
+    @Test func hintLevelsShapeThePromptDistinctly() {
+        let nudge = CodeAssistService.prompt(
+            screenText: "for i in range(n): total += i", hintLevel: .nudge,
+            question: nil, hasCodebase: false)
+        #expect(nudge.contains("Socratic"))
+        #expect(nudge.contains("never write \\\ncode") || nudge.contains("never write code")
+            || nudge.contains("never write"))
+        let approach = CodeAssistService.prompt(
+            screenText: "x", hintLevel: .approach, question: nil, hasCodebase: false)
+        #expect(approach.contains("No full code"))
+        let full = CodeAssistService.prompt(
+            screenText: "x", hintLevel: .full, question: nil, hasCodebase: false)
+        #expect(full.contains("full worked approach"))
+    }
+
+    @Test func promptCarriesScreenTextQuestionAndCodebaseFraming() {
+        let prompt = CodeAssistService.prompt(
+            screenText: "def solve(nums):", hintLevel: .approach,
+            question: "why does this time out", hasCodebase: true)
+        #expect(prompt.contains("def solve(nums):"))
+        #expect(prompt.contains("why does this time out"))
+        #expect(prompt.contains("inside the user's project"))
+        #expect(prompt.contains("own development"))
+        let bare = CodeAssistService.prompt(
+            screenText: "x", hintLevel: .approach, question: nil, hasCodebase: false)
+        #expect(!bare.contains("The user's question"))
+        #expect(!bare.contains("inside the user's project"))
+    }
+
+    @Test func hintLevelStorageKeysAreStable() {
+        #expect(HintLevel(rawValue: "nudge") == .nudge)
+        #expect(HintLevel(rawValue: "approach") == .approach)
+        #expect(HintLevel(rawValue: "full") == .full)
+    }
+}

@@ -42,6 +42,9 @@ struct SaaaApp: App {
     @State private var historyPresenter = HistoryPresenter()
     @State private var mainPresenter = MainWindowPresenter()
     @State private var importQueue = ImportQueueModel()
+    @State private var codeAssist = CodeAssistModel()
+    @State private var hubSelection = HubSelection()
+    @State private var codeAssistHotkey: HotkeyMonitor
 
     init() {
         let controller = CallController()
@@ -60,11 +63,30 @@ struct SaaaApp: App {
         ) { controller.liveAssist.answerLastThing() })
         _island = State(initialValue: IslandController(callController: controller))
 
-        // Finder "Open with Saaa": hub comes up with the files queued.
         let mainPresenter = _mainPresenter.wrappedValue
         let importQueue = _importQueue.wrappedValue
+        let codeAssist = _codeAssist.wrappedValue
+        let hubSelection = _hubSelection.wrappedValue
+
+        // Code Assist capture from anywhere: crosshair first, then the hub
+        // opens on the pane with the result.
+        _codeAssistHotkey = State(initialValue: HotkeyMonitor(
+            binding: .shiftOptionCommandC, id: 3
+        ) {
+            guard CodeAssistModel.isEnabled else { return }
+            codeAssist.captureAndAsk()
+            hubSelection.pane = .codeAssist
+            mainPresenter.show(
+                controller: controller, importQueue: importQueue,
+                codeAssist: codeAssist, selection: hubSelection)
+        })
+
+        // Finder "Open with Saaa": hub comes up with the files queued.
         SaaaAppDelegate.openHandler = { urls in
-            mainPresenter.show(controller: controller, importQueue: importQueue)
+            hubSelection.pane = .importFiles
+            mainPresenter.show(
+                controller: controller, importQueue: importQueue,
+                codeAssist: codeAssist, selection: hubSelection)
             importQueue.add(urls, controller: controller)
         }
 
@@ -119,7 +141,9 @@ struct SaaaApp: App {
                 },
                 onHistory: { historyPresenter.show() },
                 onOpenHub: {
-                    mainPresenter.show(controller: controller, importQueue: importQueue)
+                    mainPresenter.show(
+                        controller: controller, importQueue: importQueue,
+                        codeAssist: codeAssist, selection: hubSelection)
                 })
         } label: {
             // Brand glyph when idle; system indicators while active (the

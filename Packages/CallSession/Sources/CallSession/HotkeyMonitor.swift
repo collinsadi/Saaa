@@ -34,6 +34,12 @@ public final class HotkeyMonitor {
             keyCode: UInt32(kVK_ANSI_A),
             modifiers: UInt32(optionKey | cmdKey),
             display: "⌥⌘A")
+
+        /// Code Assist region capture: ⇧⌥⌘C.
+        public static let shiftOptionCommandC = Binding(
+            keyCode: UInt32(kVK_ANSI_C),
+            modifiers: UInt32(shiftKey | optionKey | cmdKey),
+            display: "⇧⌥⌘C")
     }
 
     // nonisolated(unsafe): written once during main-actor register(), read in

@@ -6,6 +6,14 @@ import DesignSystem
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Which hub pane is showing; externally settable so a hotkey can land the
+/// user on a specific pane (Code Assist capture opens with its result).
+@MainActor
+@Observable
+final class HubSelection {
+    var pane: HubPane = .importFiles
+}
+
 /// The launchable hub window (issue #3): import, history, and settings in
 /// one place, complementing the ambient island. While the hub is open the
 /// app has a Dock presence; closing it returns Saaa to a menu-bar accessory.
@@ -15,13 +23,20 @@ final class MainWindowPresenter {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
-    func show(controller: CallController, importQueue: ImportQueueModel) {
+    func show(
+        controller: CallController,
+        importQueue: ImportQueueModel,
+        codeAssist: CodeAssistModel,
+        selection: HubSelection
+    ) {
         if let window {
             NSApp.setActivationPolicy(.regular)
             WindowFront.present(window)
             return
         }
-        let view = MainHubView(controller: controller, importQueue: importQueue)
+        let view = MainHubView(
+            controller: controller, importQueue: importQueue,
+            codeAssist: codeAssist, selection: selection)
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
         // Never let SwiftUI's reported ideal size become window resize
@@ -134,9 +149,10 @@ final class ImportQueueModel {
 
 // MARK: - Hub view
 
-private enum HubPane: String, CaseIterable, Identifiable {
+enum HubPane: String, CaseIterable, Identifiable {
     case importFiles
     case queue
+    case codeAssist
     case prompts
     case history
     case settings
@@ -147,6 +163,7 @@ private enum HubPane: String, CaseIterable, Identifiable {
         switch self {
         case .importFiles: ("Import", "square.and.arrow.down")
         case .queue: ("Queue", "tray.full")
+        case .codeAssist: ("Code Assist", "chevron.left.forwardslash.chevron.right")
         case .prompts: ("Prompts", "text.quote")
         case .history: ("History", "clock")
         case .settings: ("Settings", "gearshape")
@@ -157,13 +174,19 @@ private enum HubPane: String, CaseIterable, Identifiable {
 struct MainHubView: View {
     let controller: CallController
     let importQueue: ImportQueueModel
+    let codeAssist: CodeAssistModel
+    @Bindable var selection: HubSelection
 
     @Environment(\.saaa) private var saaa
     @Environment(\.controlActiveState) private var activeState
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @AppStorage("hubOpacity") private var hubOpacity = 1.0
     @AppStorage("hubFadeWhenInactive") private var fadeWhenInactive = false
-    @State private var pane: HubPane = .importFiles
+
+    private var pane: HubPane {
+        get { selection.pane }
+        nonmutating set { selection.pane = newValue }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -197,7 +220,7 @@ struct MainHubView: View {
             .padding(.bottom, Space.xl)
             ForEach(HubPane.allCases) { item in
                 Button {
-                    pane = item
+                    selection.pane = item
                 } label: {
                     HStack(spacing: Space.md) {
                         Image(systemName: item.label.icon)
@@ -228,6 +251,8 @@ struct MainHubView: View {
             ImportPane(controller: controller, queue: importQueue)
         case .queue:
             ProcessingQueuePane(controller: controller)
+        case .codeAssist:
+            CodeAssistPane(controller: controller, model: codeAssist)
         case .prompts:
             PromptsPane(controller: controller)
         case .history:
