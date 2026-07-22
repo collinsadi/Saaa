@@ -18,8 +18,7 @@ final class MainWindowPresenter {
     func show(controller: CallController, importQueue: ImportQueueModel) {
         if let window {
             NSApp.setActivationPolicy(.regular)
-            NSApp.activate()
-            window.makeKeyAndOrderFront(nil)
+            WindowFront.present(window)
             return
         }
         let view = MainHubView(controller: controller, importQueue: importQueue)
@@ -51,8 +50,7 @@ final class MainWindowPresenter {
             }
         }
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        WindowFront.present(window)
     }
 }
 
@@ -138,6 +136,7 @@ final class ImportQueueModel {
 
 private enum HubPane: String, CaseIterable, Identifiable {
     case importFiles
+    case queue
     case prompts
     case history
     case settings
@@ -147,6 +146,7 @@ private enum HubPane: String, CaseIterable, Identifiable {
     var label: (title: String, icon: String) {
         switch self {
         case .importFiles: ("Import", "square.and.arrow.down")
+        case .queue: ("Queue", "tray.full")
         case .prompts: ("Prompts", "text.quote")
         case .history: ("History", "clock")
         case .settings: ("Settings", "gearshape")
@@ -226,6 +226,8 @@ struct MainHubView: View {
         switch pane {
         case .importFiles:
             ImportPane(controller: controller, queue: importQueue)
+        case .queue:
+            ProcessingQueuePane(controller: controller)
         case .prompts:
             PromptsPane(controller: controller)
         case .history:

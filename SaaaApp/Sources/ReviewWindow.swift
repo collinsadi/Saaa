@@ -15,14 +15,14 @@ final class ReviewWindowPresenter {
 
     private var window: NSWindow?
 
-    func show(controller: CallController, transcript: Transcript) {
+    func show(controller: CallController, context: ReviewContext) {
         let view = ReviewView(
             controller: controller,
-            transcript: transcript,
+            context: context,
             onClose: { [weak self] in
                 self?.window?.close()
                 self?.window = nil
-                controller.closeReview()
+                controller.reviewClosed(context)
             })
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
@@ -34,20 +34,21 @@ final class ReviewWindowPresenter {
         window.center()
         self.window = window
         CaptureExclusion.shared.register(window, as: .review)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        WindowFront.present(window)
     }
 }
 
 private struct ReviewView: View {
     let controller: CallController
-    let transcript: Transcript
+    let context: ReviewContext
     let onClose: @MainActor () -> Void
 
     @Environment(\.saaa) private var saaa
     @State private var approved: Set<Int> = []
     @State private var outcomes: [WriteOutcome]?
     @State private var seeded = false
+
+    private var transcript: Transcript { context.transcript }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -61,7 +62,7 @@ private struct ReviewView: View {
         .onAppear {
             guard !seeded else { return }
             seeded = true
-            approved = Set(controller.lastJudgment.map { Array($0.extracted.indices) } ?? [])
+            approved = Set(context.judgment.map { Array($0.extracted.indices) } ?? [])
         }
     }
 
@@ -110,7 +111,7 @@ private struct ReviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.md) {
                     matchCard
-                    if let judgment = controller.lastJudgment {
+                    if let judgment = context.judgment {
                         ForEach(Array(judgment.extracted.enumerated()), id: \.offset) { index, item in
                             contextCard(index: index, item: item)
                         }
@@ -126,7 +127,7 @@ private struct ReviewView: View {
 
     private var matchCard: some View {
         card {
-            if let judgment = controller.lastJudgment,
+            if let judgment = context.judgment,
                let path = judgment.match.projectPath, judgment.isConfident {
                 Text("Proj · Matched").engravedLabelStyle().foregroundStyle(saaa.textTertiary)
                 Text(URL(filePath: path).lastPathComponent)
@@ -151,7 +152,7 @@ private struct ReviewView: View {
                 Text("No confident match")
                     .font(SaaaFont.title2)
                     .foregroundStyle(saaa.textPrimary)
-                if let judgment = controller.lastJudgment,
+                if let judgment = context.judgment,
                    let path = judgment.match.projectPath {
                     // A low-confidence guess is shown as an FYI only.
                     Text("Closest guess: \(URL(filePath: path).lastPathComponent) at \(Int(judgment.match.confidence * 100))%, below the filing bar")
@@ -252,11 +253,11 @@ private struct ReviewView: View {
     private var footerActions: some View {
         HStack(spacing: Space.md) {
             if outcomes == nil,
-               let judgment = controller.lastJudgment,
+               let judgment = context.judgment,
                judgment.isConfident,
                !judgment.extracted.isEmpty {
                 Button {
-                    outcomes = controller.applyWriteBack(approvedItems: approved.sorted())
+                    outcomes = controller.applyWriteBack(context: context, approvedItems: approved.sorted())
                 } label: {
                     Text("Write back \(approved.count) item\(approved.count == 1 ? "" : "s")")
                         .font(SaaaFont.bodyEmphasis)
@@ -271,14 +272,12 @@ private struct ReviewView: View {
             }
             Spacer()
             InvisibleModeBadge(surface: .review)
-            if let directory = controller.sessionDirectory {
-                Button("Show Files") {
-                    NSWorkspace.shared.activateFileViewerSelecting([directory])
-                }
-                .buttonStyle(.plain)
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.tideText)
+            Button("Show Files") {
+                NSWorkspace.shared.activateFileViewerSelecting([context.sessionDirectory])
             }
+            .buttonStyle(.plain)
+            .font(SaaaFont.body)
+            .foregroundStyle(saaa.tideText)
             Button(outcomes == nil ? "Discard call" : "Done") { onClose() }
                 .buttonStyle(.plain)
                 .font(SaaaFont.bodyEmphasis)
@@ -312,7 +311,7 @@ private struct ReviewView: View {
 
     /// Where the router would write this item (shown on the card).
     private func targetFile(for index: Int) -> String? {
-        guard let judgment = controller.lastJudgment else { return nil }
+        guard let judgment = context.judgment else { return nil }
         return WriteBackRouter.plan(judgment: judgment, approvedItems: [index])
             .first?.targetFile
     }

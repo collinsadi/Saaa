@@ -26,8 +26,7 @@ final class HistoryPresenter {
         window.center()
         self.window = window
         CaptureExclusion.shared.register(window, as: .history)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        WindowFront.present(window)
     }
 }
 

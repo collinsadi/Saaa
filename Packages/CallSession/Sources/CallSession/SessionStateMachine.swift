@@ -34,6 +34,9 @@ public enum SessionEvent: Sendable, Equatable {
     case reset
     /// An imported recording enters processing directly (no capture).
     case importStarted
+    /// The session was handed to the background processing queue; the
+    /// machine frees up for the next recording immediately.
+    case queued
 }
 
 extension SessionState {
@@ -65,6 +68,7 @@ extension SessionEvent {
         case .reviewClosed: "reviewClosed"
         case .reset: "reset"
         case .importStarted: "importStarted"
+        case .queued: "queued"
         }
     }
 }
@@ -106,6 +110,10 @@ public enum SessionStateMachine {
         case (.idle, .importStarted), (.done, .importStarted), (.error, .importStarted):
             // Imports skip capture; never valid mid-recording or mid-review.
             return .processing
+        case (.processing, .queued):
+            // Heavy work moved to the background queue; the user can record
+            // the next call right away.
+            return .idle
         default:
             return nil
         }

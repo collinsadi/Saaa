@@ -46,6 +46,7 @@ public final class LiveAssistController {
     private var answerTask: Task<Void, Never>?
     private var micURL: URL?
     private var systemURL: URL?
+    private var gate: AsyncGate?
     private var promptStore: PromptStore?
     private var attendeesProvider: @MainActor () -> [String] = { [] }
     private var transcriberProvider: (@MainActor () async throws -> WhisperTranscriber)?
@@ -72,12 +73,14 @@ public final class LiveAssistController {
     func begin(
         micURL: URL,
         systemURL: URL,
+        gate: AsyncGate,
         promptStore: PromptStore?,
         attendeesProvider: @escaping @MainActor () -> [String],
         transcriberProvider: @escaping @MainActor () async throws -> WhisperTranscriber
     ) {
         self.micURL = micURL
         self.systemURL = systemURL
+        self.gate = gate
         self.promptStore = promptStore
         self.attendeesProvider = attendeesProvider
         self.transcriberProvider = transcriberProvider
@@ -118,18 +121,22 @@ public final class LiveAssistController {
         let system = WavTailReader.tailSamples(of: systemURL, seconds: Self.windowSeconds)
         guard mic != nil || system != nil else { return }
 
+        // The queue worker may be transcribing an EARLIER call right now;
+        // the shared whisper context takes one caller at a time.
+        await gate?.lock()
         var lines: [(start: TimeInterval, line: String, remote: Bool, text: String)] = []
         if let mic, let result = try? await transcriber.transcribe(samples: mic) {
             for segment in result.segments where !segment.text.isEmpty {
                 lines.append((segment.start, "Me: \(segment.text)", false, segment.text))
             }
         }
-        guard !Task.isCancelled else { return }
-        if let system, let result = try? await transcriber.transcribe(samples: system) {
+        if !Task.isCancelled, let system,
+           let result = try? await transcriber.transcribe(samples: system) {
             for segment in result.segments where !segment.text.isEmpty {
                 lines.append((segment.start, "Them: \(segment.text)", true, segment.text))
             }
         }
+        await gate?.unlock()
         guard !Task.isCancelled else { return }
         lines.sort { $0.start < $1.start }
         windowLines = lines.map(\.line)

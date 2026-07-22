@@ -62,6 +62,18 @@ import Testing
         #expect(state == .done)
     }
 
+    @Test func queuedFreesTheMachineForTheNextCall() {
+        #expect(SessionStateMachine.reduce(.processing, .queued) == .idle)
+        #expect(SessionStateMachine.reduce(.recording, .queued) == nil)
+        #expect(SessionStateMachine.reduce(.idle, .queued) == nil)
+        // Stop, queue, and record again immediately.
+        var state = SessionState.recording
+        for event: SessionEvent in [.hotkeyPressed, .queued, .hotkeyPressed, .captureStarted] {
+            state = SessionStateMachine.reduce(state, event) ?? state
+        }
+        #expect(state == .recording)
+    }
+
     @Test func invalidEventsAreNil() {
         #expect(SessionStateMachine.reduce(.idle, .captureStopped) == nil)
         #expect(SessionStateMachine.reduce(.idle, .transcriptReady(transcript)) == nil)

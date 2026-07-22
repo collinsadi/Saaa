@@ -50,8 +50,8 @@ struct SaaaApp: App {
         // Wire the always-on surfaces at launch (not on first menu open):
         // review presenter, global hotkey, and the notch island.
         let presenter = ReviewWindowPresenter()
-        controller.onReview = { transcript in
-            presenter.show(controller: controller, transcript: transcript)
+        controller.onReview = { context in
+            presenter.show(controller: controller, context: context)
         }
         _reviewPresenter = State(initialValue: presenter)
         _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
@@ -185,6 +185,13 @@ struct SaaaMenu: View {
         switch controller.state {
         case .idle, .done:
             Button("Start Recording (⌥⌘R)") { controller.toggle() }
+            if controller.queueBusy {
+                Text(controller.processingDetail.isEmpty
+                    ? "Processing queued calls…" : controller.processingDetail)
+            }
+            if controller.hasReadyReview {
+                Button("Open Ready Review") { controller.openLatestReadyReview() }
+            }
         case .armed:
             Text("Starting…")
         case .recording:

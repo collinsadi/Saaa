@@ -70,11 +70,16 @@ struct IslandRootView: View {
     }
 
     /// Coarse tier discriminator — drives morph animations without
-    /// retriggering on timer/level updates.
+    /// retriggering on timer/level updates. Queue work and ready reviews
+    /// surface during idle: the state machine frees up the moment a
+    /// recording stops, but the island still narrates the background.
     private var tierID: String {
         if welcome.active, case .idle = controller.state { return "welcome" }
         return switch controller.state {
-        case .idle, .done: "dormant"
+        case .idle, .done:
+            controller.queueBusy
+                ? "processing"
+                : (controller.hasReadyReview ? (peekDismissed ? "afterglow" : "peek") : "dormant")
         case .armed: "armed"
         case .recording: isExpanded ? "rec-expanded" : "rec-compact"
         case .processing: "processing"
@@ -91,8 +96,7 @@ struct IslandRootView: View {
     }
 
     private var isPeeking: Bool {
-        if case .review = controller.state { return true }
-        return false
+        controller.hasReadyReview
     }
 
     @ViewBuilder
@@ -109,9 +113,27 @@ struct IslandRootView: View {
         switch controller.state {
         case .idle, .done:
             // Dormant: the bare notch IS the state. (No-notch Macs hide the
-            // capsule entirely when dormant — never a fake notch.)
+            // capsule entirely when dormant — never a fake notch.) The
+            // background queue narrates here: filing bar while jobs run,
+            // peek when a processed call awaits review.
             if welcome.active {
                 welcomePanel
+            } else if controller.queueBusy {
+                compactBar {
+                    Lamp(.processing).matchedGeometryEffect(id: "lamp", in: lampNamespace)
+                    Text("Filing").engravedLabelStyle().foregroundStyle(saaa.tideText)
+                } trailing: {
+                    Text(shortProcessingDetail)
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.textTertiary)
+                        .lineLimit(1)
+                }
+            } else if controller.hasReadyReview {
+                if peekDismissed {
+                    afterglowDot
+                } else {
+                    peekPanel
+                }
             } else {
                 EmptyView()
             }
@@ -418,7 +440,7 @@ struct IslandRootView: View {
                     .lineLimit(1)
                 Spacer()
                 Button("Review") {
-                    NSApp.activate()
+                    controller.openLatestReadyReview()
                     peekDismissed = true
                 }
                 .buttonStyle(.plain)
