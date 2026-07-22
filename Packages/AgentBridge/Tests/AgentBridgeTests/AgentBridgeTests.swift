@@ -233,3 +233,47 @@ private let codex = FakeProvider(id: .codex)
         #expect(CodexProvider.schemaInstruction.contains("project_path"))
     }
 }
+
+// MARK: - Diarization
+
+@Suite struct DiarizationTests {
+
+    private var transcript: Transcript {
+        Transcript(
+            segments: [
+                TranscriptSegment(speaker: .me, start: 0, end: 1, text: "Hi all", confidence: 0.9),
+                TranscriptSegment(speaker: .them(label: nil), start: 1, end: 2, text: "Hello", confidence: 0.9),
+                TranscriptSegment(speaker: .them(label: nil), start: 2, end: 3, text: "Hey", confidence: 0.9),
+            ],
+            language: "en")
+    }
+
+    @Test func applyRelabelsOnlyOpenSegments() {
+        let relabeled = DiarizationService.apply(
+            [
+                .init(index: 0, speaker: "Impostor"),  // Me is locked
+                .init(index: 1, speaker: "Jane"),
+                .init(index: 2, speaker: "  "),        // blank ignored
+                .init(index: 9, speaker: "Ghost"),     // out of range ignored
+            ],
+            to: transcript)
+        #expect(relabeled.segments[0].speaker == .me)
+        #expect(relabeled.segments[1].speaker == .them(label: "Jane"))
+        #expect(relabeled.segments[2].speaker == .them(label: nil))
+    }
+
+    @Test func promptLocksMeAndListsAttendees() {
+        let prompt = DiarizationService.prompt(
+            transcript: transcript, attendees: ["Jane", "Bola"])
+        #expect(prompt.contains("0 [ME]: Hi all"))
+        #expect(prompt.contains("1 [open]: Hello"))
+        #expect(prompt.contains("Jane, Bola"))
+        #expect(prompt.contains("NEVER"))
+    }
+
+    @Test func schemaIsValidJSON() throws {
+        let object = try JSONSerialization.jsonObject(
+            with: Data(DiarizationService.schema.utf8)) as? [String: Any]
+        #expect(object?["required"] as? [String] == ["assignments", "confidence"])
+    }
+}

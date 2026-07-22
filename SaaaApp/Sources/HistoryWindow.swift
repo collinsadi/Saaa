@@ -89,6 +89,7 @@ struct HistoryView: View {
     @Environment(\.saaa) private var saaa
     @State private var model = HistoryModel()
     @State private var pendingDelete: SessionStore.Row?
+    @State private var exportShown = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -113,6 +114,16 @@ struct HistoryView: View {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("Anything already written into a project repo stays there; only Saaa's sealed record is removed.")
+        }
+        .sheet(isPresented: $exportShown) {
+            if let archive = model.selectedArchive, let row = model.selected {
+                ExportSheet(
+                    archive: archive,
+                    defaultTitle: archive.calendar?.title
+                        ?? "Call \(row.startedAt.formatted(date: .abbreviated, time: .shortened))",
+                    onClose: { exportShown = false })
+                .saaaThemed()
+            }
         }
     }
 
@@ -238,6 +249,17 @@ struct HistoryView: View {
                     .foregroundStyle(saaa.textTertiary)
             }
             Spacer()
+            if model.selectedArchive != nil {
+                Button {
+                    exportShown = true
+                } label: {
+                    Text("Export…")
+                        .font(SaaaFont.body)
+                        .foregroundStyle(saaa.tideText)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, Space.md)
+            }
             Button {
                 pendingDelete = row
             } label: {
