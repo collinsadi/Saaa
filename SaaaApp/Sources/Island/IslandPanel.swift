@@ -1,5 +1,6 @@
 import AppKit
 import CallSession
+import Core
 import DesignSystem
 import SwiftUI
 
@@ -116,5 +117,6 @@ final class IslandController {
         panel.contentView = NSHostingView(rootView: AnyView(root))
         panel.orderFrontRegardless()
         self.panel = panel
+        CaptureExclusion.shared.register(panel, as: .island)
     }
 }

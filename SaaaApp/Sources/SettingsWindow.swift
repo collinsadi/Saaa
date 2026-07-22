@@ -1,4 +1,5 @@
 import CallSession
+import Core
 import DesignSystem
 import Persistence
 import SwiftUI
@@ -13,6 +14,9 @@ struct SaaaSettingsView: View {
     @AppStorage("showIsland") private var showIsland = true
     @AppStorage("freezeMeters") private var freezeMeters = false
     @AppStorage("autoDeleteAudio") private var autoDeleteAudio = true
+    @AppStorage(CaptureExclusion.enabledKey) private var invisibleMode = false
+    @AppStorage(CaptureExclusion.scopeKey) private var invisibleScope =
+        InvisibleModeScope.allWindows.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -48,11 +52,34 @@ struct SaaaSettingsView: View {
                 }
                 .padding(.vertical, Space.sm)
             }
+            section("Privacy") {
+                toggleRow(
+                    "Invisible Mode",
+                    caption: "Saaa stays visible to you but is left out of screen recordings and shared screens. It cannot hide from a camera pointed at the display.",
+                    isOn: $invisibleMode)
+                if invisibleMode {
+                    HStack {
+                        Text("Hide")
+                            .font(SaaaFont.body)
+                            .foregroundStyle(saaa.textPrimary)
+                        Spacer()
+                        Picker("", selection: $invisibleScope) {
+                            Text("All windows").tag(InvisibleModeScope.allWindows.rawValue)
+                            Text("Call content only").tag(InvisibleModeScope.callContent.rawValue)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .frame(width: 230)
+                    }
+                    .padding(.vertical, Space.sm)
+                }
+            }
             Spacer(minLength: 0)
         }
         .padding(Space.xxl)
-        .frame(width: 460, height: 340)
+        .frame(width: 460, height: invisibleMode ? 520 : 470)
         .background(saaa.surfaceBase)
+        .background(WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in
             controller.retention = RetentionPolicy(autoDeleteAudioAfterTranscription: enabled)
         }

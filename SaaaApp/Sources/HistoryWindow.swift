@@ -24,6 +24,7 @@ final class HistoryPresenter {
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
+        CaptureExclusion.shared.register(window, as: .history)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }
@@ -122,6 +123,7 @@ private struct HistoryView: View {
                         .font(SaaaFont.headline)
                         .foregroundStyle(saaa.textPrimary)
                     Spacer()
+                    InvisibleModeBadge(surface: .history)
                 }
                 .padding(.horizontal, Space.md)
                 .padding(.bottom, Space.sm)

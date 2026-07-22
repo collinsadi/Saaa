@@ -1,4 +1,5 @@
 import AppKit
+import Core
 import DesignSystem
 import SwiftUI
 
@@ -24,6 +25,7 @@ final class OnboardingPresenter {
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
+        CaptureExclusion.shared.register(window, as: .onboarding)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }

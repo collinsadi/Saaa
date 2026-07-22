@@ -32,6 +32,7 @@ final class ReviewWindowPresenter {
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
+        CaptureExclusion.shared.register(window, as: .review)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
     }
@@ -263,6 +264,7 @@ private struct ReviewView: View {
                 .opacity(approved.isEmpty ? 0.5 : 1)
             }
             Spacer()
+            InvisibleModeBadge(surface: .review)
             if let directory = controller.sessionDirectory {
                 Button("Show Files") {
                     NSWorkspace.shared.activateFileViewerSelecting([directory])
