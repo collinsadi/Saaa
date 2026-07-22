@@ -25,10 +25,15 @@ final class MainWindowPresenter {
         let view = MainHubView(controller: controller, importQueue: importQueue)
             .saaaThemed()
         let hosting = NSHostingController(rootView: view)
+        // Never let SwiftUI's reported ideal size become window resize
+        // constraints — it pins the height (width stays free) and vertical
+        // resizing silently dies. The window owns its own limits.
+        hosting.sizingOptions = []
         let window = NSWindow(contentViewController: hosting)
         window.title = "Saaa"
         window.setContentSize(NSSize(width: 960, height: 620))
         window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.contentMinSize = NSSize(width: 720, height: 460)
         window.isReleasedWhenClosed = false
         window.center()
         self.window = window
