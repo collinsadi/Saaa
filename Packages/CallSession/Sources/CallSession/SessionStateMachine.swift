@@ -32,6 +32,8 @@ public enum SessionEvent: Sendable, Equatable {
     case reviewClosed
     /// Return to idle from `done` / `error`.
     case reset
+    /// An imported recording enters processing directly (no capture).
+    case importStarted
 }
 
 extension SessionState {
@@ -62,6 +64,7 @@ extension SessionEvent {
         case .transcriptionFailed: "transcriptionFailed"
         case .reviewClosed: "reviewClosed"
         case .reset: "reset"
+        case .importStarted: "importStarted"
         }
     }
 }
@@ -100,6 +103,9 @@ public enum SessionStateMachine {
         case (.done, .hotkeyPressed), (.error, .hotkeyPressed):
             // Convenience: a hotkey press from a terminal state starts fresh.
             return .armed
+        case (.idle, .importStarted), (.done, .importStarted), (.error, .importStarted):
+            // Imports skip capture; never valid mid-recording or mid-review.
+            return .processing
         default:
             return nil
         }

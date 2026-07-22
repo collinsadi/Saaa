@@ -17,6 +17,7 @@ import Testing
 @Test func callContentScopeExcludesOnlyTranscriptSurfaces() {
     #expect(InvisibleModePolicy.isExcluded(.review, enabled: true, scope: .callContent))
     #expect(InvisibleModePolicy.isExcluded(.history, enabled: true, scope: .callContent))
+    #expect(InvisibleModePolicy.isExcluded(.main, enabled: true, scope: .callContent))
     #expect(!InvisibleModePolicy.isExcluded(.island, enabled: true, scope: .callContent))
     #expect(!InvisibleModePolicy.isExcluded(.settings, enabled: true, scope: .callContent))
     #expect(!InvisibleModePolicy.isExcluded(.onboarding, enabled: true, scope: .callContent))

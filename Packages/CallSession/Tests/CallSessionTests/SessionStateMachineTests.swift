@@ -44,6 +44,24 @@ import Testing
         #expect(SessionStateMachine.reduce(.error("x"), .hotkeyPressed) == .armed)
     }
 
+    @Test func importEntersProcessingOnlyFromRestingStates() {
+        #expect(SessionStateMachine.reduce(.idle, .importStarted) == .processing)
+        #expect(SessionStateMachine.reduce(.done, .importStarted) == .processing)
+        #expect(SessionStateMachine.reduce(.error("x"), .importStarted) == .processing)
+        #expect(SessionStateMachine.reduce(.recording, .importStarted) == nil)
+        #expect(SessionStateMachine.reduce(.armed, .importStarted) == nil)
+        #expect(SessionStateMachine.reduce(.processing, .importStarted) == nil)
+        #expect(SessionStateMachine.reduce(.review(transcript), .importStarted) == nil)
+    }
+
+    @Test func importedProcessingReachesReview() {
+        var state = SessionState.idle
+        for event: SessionEvent in [.importStarted, .transcriptReady(transcript), .reviewClosed] {
+            state = SessionStateMachine.reduce(state, event) ?? state
+        }
+        #expect(state == .done)
+    }
+
     @Test func invalidEventsAreNil() {
         #expect(SessionStateMachine.reduce(.idle, .captureStopped) == nil)
         #expect(SessionStateMachine.reduce(.idle, .transcriptReady(transcript)) == nil)

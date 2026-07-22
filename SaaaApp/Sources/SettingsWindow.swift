@@ -10,6 +10,9 @@ import SwiftUI
 /// the resilience phase.
 struct SaaaSettingsView: View {
     let controller: CallController
+    /// True when hosted inside the hub window's Settings pane (flexible
+    /// height, no window registration of its own).
+    var embedded = false
 
     @Environment(\.saaa) private var saaa
     @AppStorage("showIsland") private var showIsland = true
@@ -130,9 +133,10 @@ struct SaaaSettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(Space.xxl)
-        .frame(width: 460, height: invisibleMode ? 760 : 710)
+        .frame(width: 460)
+        .frame(height: embedded ? nil : (invisibleMode ? 760 : 710))
         .background(saaa.surfaceBase)
-        .background(WindowRegistrar(surface: .settings))
+        .background(embedded ? nil : WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in
             controller.retention = RetentionPolicy(autoDeleteAudioAfterTranscription: enabled)
         }

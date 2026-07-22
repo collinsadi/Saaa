@@ -9,12 +9,15 @@ public enum SaaaSurface: String, CaseIterable, Sendable {
     case history
     case settings
     case onboarding
+    /// The launchable hub window (import, history, settings panes).
+    case main
 
     /// Surfaces that display call content: transcripts, matches, extracted
-    /// context. These stay hidden even under the narrower scope.
+    /// context. These stay hidden even under the narrower scope. The hub
+    /// counts: its history pane renders transcripts.
     public var carriesCallContent: Bool {
         switch self {
-        case .review, .history: true
+        case .review, .history, .main: true
         case .island, .settings, .onboarding: false
         }
     }

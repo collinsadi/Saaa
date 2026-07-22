@@ -33,7 +33,7 @@ final class HistoryPresenter {
 
 @MainActor
 @Observable
-private final class HistoryModel {
+final class HistoryModel {
     var rows: [SessionStore.Row] = []
     var selected: SessionStore.Row?
     var selectedArchive: SessionArchive?
@@ -82,7 +82,7 @@ private final class HistoryModel {
     }
 }
 
-private struct HistoryView: View {
+struct HistoryView: View {
     @Environment(\.saaa) private var saaa
     @State private var model = HistoryModel()
     @State private var pendingDelete: SessionStore.Row?

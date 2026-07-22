@@ -279,6 +279,72 @@ public final class CallController {
         await transcribeCurrentSession()
     }
 
+    // MARK: - Import
+
+    /// Manual context attached to an import: stands in for the calendar
+    /// when the file's creation time has no event, and wins over it when
+    /// provided.
+    public struct ImportContext: Sendable, Equatable {
+        public var title: String
+        /// Comma-separated names.
+        public var attendees: String
+
+        public init(title: String = "", attendees: String = "") {
+            self.title = title
+            self.attendees = attendees
+        }
+    }
+
+    /// Runs an existing audio or video recording through the same pipeline
+    /// as a live call (issue #3). Valid only outside an active session.
+    /// Imported media gets the same sealing and retention as live audio.
+    public func importRecording(_ fileURL: URL, context manual: ImportContext = ImportContext()) {
+        guard apply(.importStarted) else { return }
+        Task { await runImport(fileURL, manual: manual) }
+    }
+
+    private func runImport(_ fileURL: URL, manual: ImportContext) async {
+        let stamp = Self.timestamp()
+        let directory = URL.applicationSupportDirectory
+            .appendingPathComponent("Saaa/Sessions/\(stamp)-import", isDirectory: true)
+        sessionDirectory = directory
+        sessionStartedAt = .now
+        do {
+            processingDetail = "Preparing audio…"
+            let imported = try await MediaImporter.extract(from: fileURL, into: directory)
+
+            // The event overlapping the file's creation time stands in for
+            // the live calendar snapshot; manual context wins where given.
+            let created = (try? fileURL.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+            if let created { sessionStartedAt = created }
+            var calendar: Core.CalendarContext?
+            if let created { calendar = await calendarReader.eventOverlapping(created) }
+            let title = manual.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let attendees = manual.attendees
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !title.isEmpty || !attendees.isEmpty {
+                calendar = Core.CalendarContext(
+                    title: title.isEmpty
+                        ? (calendar?.title ?? fileURL.deletingPathExtension().lastPathComponent)
+                        : title,
+                    attendees: attendees.isEmpty ? (calendar?.attendees ?? []) : attendees,
+                    notes: calendar?.notes)
+            }
+            callCalendarContext = calendar
+
+            await runPipeline(
+                micWAV: imported.micWAV,
+                systemWAV: imported.systemWAV,
+                duration: imported.duration,
+                directory: directory)
+        } catch {
+            processingDetail = ""
+            _ = apply(.transcriptionFailed(Self.describe(error)))
+        }
+    }
+
     // MARK: - Processing
 
     private func transcribeCurrentSession() async {
@@ -290,7 +356,19 @@ public final class CallController {
         eventTask?.cancel()
         eventTask = nil
         levels = nil
+        await runPipeline(
+            micWAV: result.micFileURL,
+            systemWAV: result.systemFileURL,
+            duration: result.duration,
+            directory: directory)
+    }
 
+    /// The shared pipeline tail for live calls and imports: transcribe the
+    /// lane(s), merge, match, judge, seal, and hand off to review. A nil
+    /// `micWAV` (mono import) yields a single unattributed lane.
+    private func runPipeline(
+        micWAV: URL?, systemWAV: URL, duration: TimeInterval, directory: URL
+    ) async {
         do {
             processingDetail = "Preparing models…"
             let modelURL = try await modelManager.ensure(.largeV3Turbo) { [weak self] progress in
@@ -310,14 +388,23 @@ public final class CallController {
             // Calendar terms pre-warm Whisper's vocabulary (proper nouns).
             let bias = VocabularyBias.initialPrompt(
                 terms: callCalendarContext?.signalTerms ?? [])
-            processingDetail = "Transcribing your side…"
-            let mic = try await transcriber.transcribe(
-                wavFile: result.micFileURL, initialPrompt: bias)
-            processingDetail = "Transcribing their side…"
-            let system = try await transcriber.transcribe(
-                wavFile: result.systemFileURL, initialPrompt: bias)
-
-            let transcript = TranscriptMerger.merge(mic: mic, system: system)
+            let transcript: Transcript
+            if let micWAV {
+                processingDetail = "Transcribing your side…"
+                let mic = try await transcriber.transcribe(
+                    wavFile: micWAV, initialPrompt: bias)
+                processingDetail = "Transcribing their side…"
+                let system = try await transcriber.transcribe(
+                    wavFile: systemWAV, initialPrompt: bias)
+                transcript = TranscriptMerger.merge(mic: mic, system: system)
+            } else {
+                processingDetail = "Transcribing…"
+                let single = try await transcriber.transcribe(
+                    wavFile: systemWAV, initialPrompt: bias)
+                transcript = TranscriptMerger.merge(
+                    mic: ChannelTranscription(segments: [], language: single.language),
+                    system: single)
+            }
 
             // Phase-5 shortlist: cheap prefilter over every installed
             // agent's memory (Claude Code's store, Codex's sessions),
@@ -423,8 +510,8 @@ public final class CallController {
                 try encryption.encrypt(
                     archive, to: directory.appendingPathComponent("session.enc"))
                 if retention.autoDeleteAudioAfterTranscription {
-                    try? FileManager.default.removeItem(at: result.micFileURL)
-                    try? FileManager.default.removeItem(at: result.systemFileURL)
+                    if let micWAV { try? FileManager.default.removeItem(at: micWAV) }
+                    try? FileManager.default.removeItem(at: systemWAV)
                     audioRetained = false
                 }
             } else {
@@ -437,7 +524,7 @@ public final class CallController {
             try? await store?.insert(SessionStore.Row(
                 id: recordID,
                 startedAt: sessionStartedAt,
-                duration: result.duration,
+                duration: duration,
                 directoryPath: directory.path,
                 projectPath: lastJudgment?.match.projectPath,
                 confidence: lastJudgment?.match.confidence,

@@ -17,8 +17,21 @@ import Transcription
 /// Phase-4 state (MVP): global hotkey → target resolution → two-lane capture
 /// → whisper transcription → Me/Them transcript in a review window. The
 /// design-system UI and notch island arrive in Phase 9.
+/// Receives Finder "Open with Saaa" files and routes them into the hub's
+/// import queue.
+final class SaaaAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var openHandler: (([URL]) -> Void)?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in
+            SaaaAppDelegate.openHandler?(urls)
+        }
+    }
+}
+
 @main
 struct SaaaApp: App {
+    @NSApplicationDelegateAdaptor(SaaaAppDelegate.self) private var appDelegate
     @State private var harness = CaptureHarness()
     @State private var controller: CallController
     @State private var reviewPresenter: ReviewWindowPresenter
@@ -26,6 +39,8 @@ struct SaaaApp: App {
     @State private var island: IslandController
     @State private var onboardingPresenter = OnboardingPresenter()
     @State private var historyPresenter = HistoryPresenter()
+    @State private var mainPresenter = MainWindowPresenter()
+    @State private var importQueue = ImportQueueModel()
 
     init() {
         let controller = CallController()
@@ -40,6 +55,14 @@ struct SaaaApp: App {
         _reviewPresenter = State(initialValue: presenter)
         _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
         _island = State(initialValue: IslandController(callController: controller))
+
+        // Finder "Open with Saaa": hub comes up with the files queued.
+        let mainPresenter = _mainPresenter.wrappedValue
+        let importQueue = _importQueue.wrappedValue
+        SaaaAppDelegate.openHandler = { urls in
+            mainPresenter.show(controller: controller, importQueue: importQueue)
+            importQueue.add(urls, controller: controller)
+        }
 
         // First run: the guided bootstrap (permissions, model, claude).
         if !UserDefaults.standard.bool(forKey: "onboardingComplete"),
@@ -90,7 +113,10 @@ struct SaaaApp: App {
                         island.showWelcome()
                     }
                 },
-                onHistory: { historyPresenter.show() })
+                onHistory: { historyPresenter.show() },
+                onOpenHub: {
+                    mainPresenter.show(controller: controller, importQueue: importQueue)
+                })
         } label: {
             // Brand glyph when idle; system indicators while active (the
             // consent-first visible recording state).
@@ -118,6 +144,7 @@ struct SaaaMenu: View {
     let harness: CaptureHarness
     let onSetup: () -> Void
     let onHistory: () -> Void
+    let onOpenHub: () -> Void
 
     var body: some View {
         statusSection
@@ -128,6 +155,10 @@ struct SaaaMenu: View {
         }
         Divider()
         #endif
+        Button("Open Saaa…") {
+            onOpenHub()
+        }
+        .keyboardShortcut("o")
         Button("History…") {
             onHistory()
         }

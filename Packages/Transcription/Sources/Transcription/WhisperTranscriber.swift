@@ -26,6 +26,11 @@ public struct ChannelTranscription: Sendable, Equatable {
     public let segments: [ChannelSegment]
     /// Detected language code (e.g. "en").
     public let language: String
+
+    public init(segments: [ChannelSegment], language: String) {
+        self.segments = segments
+        self.language = language
+    }
 }
 
 /// Errors thrown by ``WhisperTranscriber``.
