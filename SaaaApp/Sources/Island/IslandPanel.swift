@@ -63,6 +63,7 @@ final class IslandController {
 
     private var panel: IslandPanel?
     private var screenObserver: NSObjectProtocol?
+    private var defaultsObserver: NSObjectProtocol?
     private var clickMonitor: Any?
     private let callController: CallController
     /// Bumped on any click outside the panel — the root view observes it to
@@ -80,12 +81,21 @@ final class IslandController {
     init(callController: CallController) {
         self.callController = callController
         install()
+        trackDormancy()
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.install()
+            }
+        }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyDormancy()
             }
         }
         clickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -118,5 +128,34 @@ final class IslandController {
         panel.orderFrontRegardless()
         self.panel = panel
         CaptureExclusion.shared.register(panel, as: .island)
+        applyDormancy()
+    }
+
+    /// The oversized panel blocks the window server's resize-cursor bands
+    /// for windows underneath it — even where its pixels are zero-alpha
+    /// (clicks pass through per-pixel; cursor tracking does not). A dormant
+    /// island renders nothing clickable, so the panel ignores mouse events
+    /// entirely until a tier becomes visible again.
+    private func trackDormancy() {
+        withObservationTracking {
+            _ = callController.state
+            _ = welcome.active
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.applyDormancy()
+                self.trackDormancy()
+            }
+        }
+        applyDormancy()
+    }
+
+    private func applyDormancy() {
+        let islandShown = (UserDefaults.standard.object(forKey: "showIsland") as? Bool) ?? true
+        let dormant: Bool = switch callController.state {
+        case .idle, .done: !welcome.active
+        default: false
+        }
+        panel?.ignoresMouseEvents = dormant || !islandShown
     }
 }
