@@ -451,6 +451,8 @@ public final class CallController {
         eventTask?.cancel()
         eventTask = nil
         levels = nil
+        // Thread snapshot before shutdown clears the copilot state.
+        let assistThread = liveAssist.takeThread()
         await liveAssist.shutdownAndWait()
         enqueue(ProcessingJob(
             title: callCalendarContext?.title
@@ -461,6 +463,7 @@ public final class CallController {
             duration: result.duration,
             directory: directory,
             calendar: callCalendarContext,
+            assistThread: assistThread,
             context: nil))
     }
 
@@ -678,7 +681,18 @@ public final class CallController {
                 transcript: transcript,
                 calendar: job.calendar,
                 matches: matches,
-                judgment: judgment)
+                judgment: judgment,
+                assistThread: job.assistThread.isEmpty ? nil : job.assistThread.map { exchange in
+                    switch exchange.kind {
+                    case .ask(let text):
+                        AssistThreadEntry(role: "ask", mode: nil, text: text, at: exchange.at)
+                    case .answer(let mode, let text):
+                        AssistThreadEntry(
+                            role: "answer", mode: mode.displayName, text: text, at: exchange.at)
+                    case .failed(let message):
+                        AssistThreadEntry(role: "failed", mode: nil, text: message, at: exchange.at)
+                    }
+                })
             var audioRetained = true
             if let encryption {
                 try encryption.encrypt(

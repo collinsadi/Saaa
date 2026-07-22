@@ -11,6 +11,14 @@ import SwiftUI
 /// or glows, ever; the window-server click region tracks SwiftUI shape
 /// changes within ~300 ms.
 final class IslandPanel: NSPanel {
+    /// Key focus is allowed ONLY while the assist tier's ask field can be on
+    /// screen (recording + Live Assist on). With `becomesKeyOnlyIfNeeded`
+    /// the panel still only takes key when the field itself is clicked —
+    /// Spotlight-style: keyboard comes here, the front app stays active.
+    /// HARDWARE-VERIFY: typing must not steal the call app's focus, and
+    /// dormant click-through must survive (UI-PLAN §4.7 probe).
+    var allowsKey = false
+
     init(frame: NSRect) {
         super.init(
             contentRect: frame,
@@ -27,7 +35,7 @@ final class IslandPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
 }
 
@@ -140,6 +148,9 @@ final class IslandController {
         withObservationTracking {
             _ = callController.state
             _ = welcome.active
+            _ = callController.queueBusy
+            _ = callController.hasReadyReview
+            _ = callController.liveAssist.phase
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -150,12 +161,26 @@ final class IslandController {
         applyDormancy()
     }
 
+    /// Idle with interactive content is NOT dormant: the queue-narration bar,
+    /// the peek's Review button, and the afterglow tap all render during
+    /// idle — a dormant (mouse-transparent) panel would leave them dead.
     private func applyDormancy() {
         let islandShown = (UserDefaults.standard.object(forKey: "showIsland") as? Bool) ?? true
         let dormant: Bool = switch callController.state {
-        case .idle, .done: !welcome.active
+        case .idle, .done:
+            !welcome.active && !callController.queueBusy && !callController.hasReadyReview
         default: false
         }
         panel?.ignoresMouseEvents = dormant || !islandShown
+        // The ask field is only reachable while recording with Live Assist
+        // on; outside that window the panel can never become key.
+        let recording: Bool = if case .recording = callController.state { true } else { false }
+        let allowsKey = recording && callController.liveAssist.phase != .off && islandShown
+        if panel?.allowsKey != allowsKey {
+            panel?.allowsKey = allowsKey
+            if !allowsKey, panel?.isKeyWindow == true {
+                panel?.makeFirstResponder(nil)
+            }
+        }
     }
 }

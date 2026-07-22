@@ -1,3 +1,4 @@
+import AgentBridge
 import CallSession
 import DesignSystem
 import SwiftUI
@@ -40,6 +41,7 @@ struct IslandRootView: View {
     @State private var isExpanded = false
     @State private var peekDismissed = false
     @State private var peekHovering = false
+    @State private var askText = ""
     @Namespace private var lampNamespace
 
     var body: some View {
@@ -148,17 +150,23 @@ struct IslandRootView: View {
             }
         case .recording:
             if isExpanded {
-                expandedRecordingPanel
-                    .transition(.opacity)
+                if controller.liveAssist.phase != .off {
+                    assistPanel
+                        .transition(.opacity)
+                } else {
+                    expandedRecordingPanel
+                        .transition(.opacity)
+                }
             } else {
                 compactBar {
                     Lamp(.recording).matchedGeometryEffect(id: "lamp", in: lampNamespace)
                     Text("Rec").engravedLabelStyle().foregroundStyle(saaa.emberText)
                     if controller.liveAssist.phase != .off {
                         // "Show clearly when the mode is live" (issue #8).
+                        // A state label, not a control — reads as a readout.
                         Text("AI")
                             .engravedLabelStyle()
-                            .foregroundStyle(saaa.tideText)
+                            .foregroundStyle(saaa.textSecondary)
                     }
                 } trailing: {
                     timerReadout(font: SaaaFont.readoutValue)
@@ -232,55 +240,209 @@ struct IslandRootView: View {
                 .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
     }
 
-    /// Live Assist block inside the expanded tier (issue #8): visibly
-    /// labeled, suggestion-not-autopilot, hotkey-first.
-    @ViewBuilder
-    private var liveAssistSection: some View {
-        HStack(spacing: Space.sm) {
-            Text("Live Assist")
-                .engravedLabelStyle()
-                .foregroundStyle(saaa.tideText)
-            Text("streams to your agent")
+    // MARK: - Assist tier (the continuous copilot, UI-PLAN §4.7 addendum)
+
+    /// The Live Assist tier: a per-call thread — asks, mode triggers, and
+    /// answers accumulate for as long as the call runs. Header chrome and
+    /// the ask field stay pinned; only the thread scrolls. No tap-to-collapse
+    /// (interactive content everywhere); outside click still collapses.
+    private var assistPanel: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.sm) {
+                Lamp(.recording).matchedGeometryEffect(id: "lamp", in: lampNamespace)
+                Text("Rec").engravedLabelStyle().foregroundStyle(saaa.emberText)
+                timerReadout(font: SaaaFont.readoutValue)
+                Spacer()
+                Text("Live Assist · Streaming")
+                    .engravedLabelStyle()
+                    .foregroundStyle(saaa.tideText)
+                Spacer()
+                Toggle(isOn: Binding(
+                    get: { controller.micMuted },
+                    set: { controller.setMicMuted($0) }
+                )) {
+                    Text("Mute")
+                        .font(SaaaFont.caption)
+                        .foregroundStyle(saaa.textSecondary)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(saaa.tideFill)
+                Button {
+                    controller.toggle()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(saaa.textOnAccent)
+                        .frame(width: Size.controlMd, height: Size.controlMd)
+                        .background(Circle().fill(saaa.emberLamp))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop recording")
+            }
+            threadView
+            Text("suggestions, say them your way · thread seals with the call")
                 .font(SaaaFont.monoCaption)
                 .foregroundStyle(saaa.textTertiary)
-            Spacer()
-            switch controller.liveAssist.phase {
-            case .answered, .failed:
-                Button("Done") { controller.liveAssist.dismissAnswer() }
-                    .buttonStyle(.plain)
-                    .font(SaaaFont.caption)
-                    .foregroundStyle(saaa.tideText)
-            default:
-                Text("⌥⌘A answers")
-                    .font(SaaaFont.monoCaption)
-                    .foregroundStyle(saaa.textTertiary)
+            modeRow
+            askField
+        }
+        .padding(Space.lg)
+        .padding(.top, metrics.hasNotch ? metrics.topInset : 0)
+        .frame(width: Size.Island.assistWidth)
+        .background(
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: Size.Island.expandedRadius,
+                bottomTrailingRadius: Size.Island.expandedRadius)
+                .fill(SaaaPalette.islandSurface))
+        .overlay(
+            IslandOpenBorder(cornerRadius: Size.Island.expandedRadius)
+                .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
+    }
+
+    private var threadView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    if controller.liveAssist.thread.isEmpty,
+                       controller.liveAssist.pendingMode == nil {
+                        Text("Ask anything, any time.")
+                            .font(SaaaFont.headline)
+                            .foregroundStyle(saaa.textPrimary)
+                        Text("Answers land here for as long as the call runs.")
+                            .font(SaaaFont.callout)
+                            .foregroundStyle(saaa.textSecondary)
+                    }
+                    ForEach(controller.liveAssist.thread) { exchange in
+                        threadEntry(exchange).id(exchange.id)
+                    }
+                    if let pending = controller.liveAssist.pendingMode {
+                        HStack(spacing: Space.sm) {
+                            Text(pending.displayName)
+                                .font(SaaaFont.monoCaption)
+                                .foregroundStyle(saaa.tideText)
+                            Text("drafting from the last 30 seconds …")
+                                .font(SaaaFont.monoCaption)
+                                .foregroundStyle(saaa.textTertiary)
+                        }
+                        .id("drafting")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 132)
+            .onChange(of: controller.liveAssist.thread.count) {
+                guard let last = controller.liveAssist.thread.last else { return }
+                if reduceMotion {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                } else {
+                    withAnimation(Motion.standard) {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
             }
         }
-        switch controller.liveAssist.phase {
-        case .thinking:
-            Text("Thinking…")
-                .font(SaaaFont.body)
-                .foregroundStyle(saaa.textSecondary)
-        case .answered(let suggestion):
-            ScrollView {
-                Text(suggestion)
+    }
+
+    @ViewBuilder
+    private func threadEntry(_ exchange: LiveAssistExchange) -> some View {
+        switch exchange.kind {
+        case .ask(let text):
+            HStack {
+                Spacer(minLength: Space.huge)
+                Text(text)
+                    .font(SaaaFont.callout)
+                    .foregroundStyle(saaa.textSecondary)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, Space.xs)
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.md + 6).fill(saaa.surfaceInset))
+            }
+        case .answer(let mode, let text):
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                HStack(spacing: Space.sm) {
+                    Text(mode.displayName)
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.tideText)
+                    Text(exchange.at.formatted(date: .omitted, time: .shortened))
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.textTertiary)
+                }
+                Text(text)
                     .font(SaaaFont.body)
                     .foregroundStyle(saaa.textPrimary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 76)
-            Text("a suggestion, say it your way")
-                .font(SaaaFont.monoCaption)
-                .foregroundStyle(saaa.textTertiary)
         case .failed(let message):
             Text(message)
                 .font(SaaaFont.caption)
                 .foregroundStyle(saaa.dangerText)
                 .lineLimit(2)
-        default:
-            EmptyView()
+        }
+    }
+
+    private var modeRow: some View {
+        HStack(spacing: Space.sm) {
+            ForEach(Array(AssistMode.allCases.enumerated()), id: \.element) { index, mode in
+                if index > 0 {
+                    Text("·")
+                        .font(SaaaFont.callout)
+                        .foregroundStyle(saaa.textTertiary)
+                }
+                Button(mode.displayName) {
+                    controller.liveAssist.trigger(mode)
+                }
+                .buttonStyle(.plain)
+                .font(SaaaFont.callout)
+                .foregroundStyle(
+                    controller.liveAssist.pendingMode == mode
+                        ? saaa.tideText : saaa.textSecondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var askField: some View {
+        HStack(spacing: Space.sm) {
+            TextField("Ask about the call", text: $askText)
+                .textFieldStyle(.plain)
+                .font(SaaaFont.body)
+                .foregroundStyle(saaa.textPrimary)
+                .onSubmit { submitAsk() }
+            if askText.isEmpty {
+                Text("⌘↩ for Assist")
+                    .font(SaaaFont.monoCaption)
+                    .foregroundStyle(saaa.textTertiary)
+            }
+            Button {
+                submitAsk()
+            } label: {
+                Image(systemName: "arrowtriangle.right.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(saaa.textOnAccent)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(saaa.tideFill))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityLabel("Send")
+        }
+        .padding(.horizontal, Space.md)
+        .frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: Radius.md + 6).fill(saaa.surfaceInset))
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.md + 6)
+                .strokeBorder(saaa.borderHairline.opacity(0.6), lineWidth: 1))
+    }
+
+    private func submitAsk() {
+        let text = askText.trimmingCharacters(in: .whitespacesAndNewlines)
+        askText = ""
+        if text.isEmpty {
+            controller.liveAssist.trigger(.assist)
+        } else {
+            controller.liveAssist.ask(text)
         }
     }
 
@@ -296,11 +458,24 @@ struct IslandRootView: View {
 
     private var expandedRecordingPanel: some View {
         VStack(alignment: .leading, spacing: Space.md) {
-            HStack {
+            // Recorder grammar: the stop control sits in the header beside
+            // the timer readout.
+            HStack(spacing: Space.sm) {
                 Lamp(.recording).matchedGeometryEffect(id: "lamp", in: lampNamespace)
                 Text("Rec").engravedLabelStyle().foregroundStyle(saaa.emberText)
                 Spacer()
                 timerReadout(font: SaaaFont.readoutTimer)
+                Button {
+                    controller.toggle()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(saaa.textOnAccent)
+                        .frame(width: Size.controlMd, height: Size.controlMd)
+                        .background(Circle().fill(saaa.emberLamp))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop recording")
             }
             meterRow(label: "Me", level: controller.micMuted ? 0 : (controller.levels?.mic.rms ?? 0))
             meterRow(label: "Them", level: controller.levels?.system.rms ?? 0)
@@ -317,24 +492,12 @@ struct IslandRootView: View {
                 .controlSize(.mini)
                 .tint(saaa.tideFill)
                 Spacer()
-                Text("local · sealed")
-                    .font(SaaaFont.monoCaption)
-                    .foregroundStyle(saaa.textTertiary)
-                Button {
-                    controller.toggle()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(saaa.textOnAccent)
-                        .frame(width: Size.controlLg, height: Size.controlLg)
-                        .background(Circle().fill(saaa.emberLamp))
+                // Only truthful while nothing streams (issue #8 consent fix).
+                if controller.liveAssist.phase == .off {
+                    Text("local · sealed")
+                        .font(SaaaFont.monoCaption)
+                        .foregroundStyle(saaa.textTertiary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop recording")
-            }
-            if controller.liveAssist.phase != .off {
-                Divider().overlay(saaa.borderHairline.opacity(0.4))
-                liveAssistSection
             }
         }
         .padding(Space.lg)
@@ -360,7 +523,7 @@ struct IslandRootView: View {
         HStack(spacing: Space.md) {
             Text(label)
                 .engravedLabelStyle()
-                .foregroundStyle(saaa.tideText)
+                .foregroundStyle(saaa.textSecondary)
                 .frame(width: 38, alignment: .leading)
             LevelBars(level: level, barCount: 24, frozen: freezeMeters)
                 .frame(height: 14)
@@ -433,7 +596,7 @@ struct IslandRootView: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.sm) {
                 Image(systemName: "tray.full")
-                    .foregroundStyle(saaa.tideEmphasis)
+                    .foregroundStyle(saaa.textSecondary)
                 Text(peekTitle)
                     .font(SaaaFont.headline)
                     .foregroundStyle(saaa.textPrimary)
@@ -478,13 +641,24 @@ struct IslandRootView: View {
         return "Transcript ready, unfiled"
     }
 
-    /// Quiet afterglow: a single tide dot below the notch after peek retracts.
+    /// Quiet afterglow: a single tide dot below the notch after peek
+    /// retracts. Tapping it reopens the peek — the tideEmphasis is earned.
     private var afterglowDot: some View {
         Circle()
             .fill(saaa.tideEmphasis)
             .frame(width: 4, height: 4)
-            .padding(.top, metrics.topInset + 4)
+            .padding(Space.md)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(Motion.expand(reduceMotion: reduceMotion)) {
+                    peekDismissed = false
+                }
+                schedulePeekRetract()
+            }
+            .padding(.top, metrics.topInset - Space.md + 4)
             .transition(.opacity)
+            .accessibilityLabel("Reopen the ready review")
+            .accessibilityAddTraits(.isButton)
     }
 
     private func schedulePeekRetract() {

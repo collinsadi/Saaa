@@ -7,10 +7,32 @@ import Persistence
 import Transcription
 import os
 
+/// One entry in the per-call assist thread: the user's asks and the
+/// copilot's responses accumulate for as long as the call runs, then seal
+/// into the session archive with the transcript.
+public struct LiveAssistExchange: Identifiable, Sendable, Equatable {
+    public enum Kind: Equatable, Sendable {
+        case ask(String)
+        case answer(mode: AssistMode, text: String)
+        case failed(String)
+    }
+
+    public let id: UUID
+    public let at: Date
+    public let kind: Kind
+
+    init(_ kind: Kind) {
+        id = UUID()
+        at = Date()
+        self.kind = kind
+    }
+}
+
 /// Live Assist (issue #8): while a recording runs with the mode armed, a
 /// micro-batch streamer transcribes the trailing window of both live lanes
-/// every few seconds. The hotkey (or a conservative question heuristic)
-/// dispatches the window to the agent for a suggested answer, shown in the
+/// every few seconds. The hotkey, the island's mode row, or a typed ask (or
+/// a conservative question heuristic) dispatches the window to the agent;
+/// responses accumulate in a continuous per-call thread shown in the
 /// expanded island. Requires informed opt-in AND a Live Assist prompt;
 /// every failure degrades quietly — a broken copilot must never touch the
 /// recording itself.
@@ -34,6 +56,10 @@ public final class LiveAssistController {
     public private(set) var phase: Phase = .off
     /// Rolling Me/Them lines of the current window.
     public private(set) var windowLines: [String] = []
+    /// The per-call conversation with the copilot, newest last.
+    public private(set) var thread: [LiveAssistExchange] = []
+    /// Which mode a in-flight dispatch belongs to (drives the drafting row).
+    public private(set) var pendingMode: AssistMode?
 
     private static let log = Logger(subsystem: "dev.collinsadi.saaa", category: "LiveAssist")
     /// Window and cadence chosen so the cached large model keeps up on
@@ -86,6 +112,8 @@ public final class LiveAssistController {
         self.transcriberProvider = transcriberProvider
         phase = .listening
         windowLines = []
+        thread = []
+        pendingMode = nil
         Self.log.info("live assist armed")
         loop = Task { [weak self] in
             while !Task.isCancelled {
@@ -107,6 +135,13 @@ public final class LiveAssistController {
         _ = await running?.value
         phase = .off
         windowLines = []
+        pendingMode = nil
+    }
+
+    /// Snapshot of the thread for sealing into the session archive; taken
+    /// by the controller right before shutdown.
+    public func takeThread() -> [LiveAssistExchange] {
+        thread
     }
 
     // MARK: - Streaming window
@@ -158,8 +193,21 @@ public final class LiveAssistController {
 
     /// The ⌥⌘A hotkey: answer the last thing the other side said.
     public func answerLastThing() {
+        trigger(.assist)
+    }
+
+    /// The island's mode row: one tap runs the mode over the rolling window.
+    public func trigger(_ mode: AssistMode) {
         guard phase != .off, phase != .thinking else { return }
-        dispatch(question: nil)
+        dispatch(question: nil, mode: mode)
+    }
+
+    /// A typed ask from the island's field; lands in the thread verbatim.
+    public func ask(_ question: String) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, phase != .off, phase != .thinking else { return }
+        thread.append(LiveAssistExchange(.ask(trimmed)))
+        dispatch(question: trimmed, mode: .assist)
     }
 
     /// Returns to listening after the user has read an answer.
@@ -168,24 +216,35 @@ public final class LiveAssistController {
         if case .failed = phase { phase = .listening }
     }
 
-    private func dispatch(question: String?) {
+    private func dispatch(question: String?, mode: AssistMode = .assist) {
         guard !windowLines.isEmpty else {
             phase = .failed("No conversation heard yet")
+            thread.append(LiveAssistExchange(.failed("No conversation heard yet")))
             return
         }
         let window = windowLines.suffix(24).joined(separator: "\n")
         let instructions = composedInstructions()
         let knowledgeFolder = UserDefaults.standard.string(forKey: Self.knowledgeFolderKey)
         phase = .thinking
+        pendingMode = mode
         answerTask = Task { [weak self] in
             let answer = await LiveAnswerService().answer(
                 window: window,
                 question: question,
+                mode: mode,
                 instructions: instructions,
                 knowledgeFolder: knowledgeFolder)
             guard !Task.isCancelled else { return }
-            self?.phase = answer.map { .answered($0) }
-                ?? .failed("No answer. Check your agent in Settings.")
+            guard let self else { return }
+            self.pendingMode = nil
+            if let answer {
+                self.phase = .answered(answer)
+                self.thread.append(LiveAssistExchange(.answer(mode: mode, text: answer)))
+            } else {
+                let message = "No answer. Check your agent in Settings."
+                self.phase = .failed(message)
+                self.thread.append(LiveAssistExchange(.failed(message)))
+            }
         }
     }
 

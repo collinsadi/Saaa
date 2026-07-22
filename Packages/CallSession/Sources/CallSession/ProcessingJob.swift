@@ -30,6 +30,9 @@ public struct ProcessingJob: Identifiable, Sendable {
     let duration: TimeInterval
     let directory: URL
     let calendar: Core.CalendarContext?
+    /// The call-time Live Assist thread, sealed into the archive with the
+    /// transcript (empty for imports and assist-off calls).
+    var assistThread: [LiveAssistExchange] = []
 
     /// Everything review and write-back need, once processed.
     public var context: ReviewContext?
