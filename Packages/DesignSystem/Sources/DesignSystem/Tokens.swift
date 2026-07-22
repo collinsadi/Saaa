@@ -28,6 +28,13 @@ public enum Size {
     public static let controlMd: CGFloat = 24
     public static let controlLg: CGFloat = 28
     public static let panelWidth: CGFloat = 336
+    /// Hub navigation rail width.
+    public static let sidebarWidth: CGFloat = 190
+    /// PaneColumn measure: pane content caps here, leading-aligned — empty
+    /// space accrues on the right as instrument margin.
+    public static let contentColumnMax: CGFloat = 640
+    /// Transcript surfaces (Review transcript, History detail) read wider.
+    public static let transcriptColumnMax: CGFloat = 720
     /// The lamp glyph slot: 10 pt glyph in a 12 pt slot.
     public static let lampSlot: CGFloat = 12
     public static let lampGlyph: CGFloat = 10
@@ -41,6 +48,9 @@ public enum Size {
         public static let flankWidth: CGFloat = 120
         /// Expanded panel width (H7).
         public static let expandedWidth: CGFloat = 400
+        /// The Live Assist tier's width — the copilot thread needs the room;
+        /// still inside the fixed 620-wide panel.
+        public static let assistWidth: CGFloat = 600
         /// Meter bar strip height inside the flanks.
         public static let meterHeight: CGFloat = 8
         /// Compact bar bottom corners.

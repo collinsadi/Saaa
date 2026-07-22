@@ -47,7 +47,7 @@ public struct SaaaPalette: Sendable, Equatable {
         successText: Color(hex: 0x1F6B47),
         dangerFill: Color(hex: 0xAD2E24), dangerText: Color(hex: 0xAD2E24),
         confidenceHigh: Color(hex: 0x2C6E8A), confidenceMedium: Color(hex: 0x5C636A),
-        confidenceLow: Color(hex: 0xBF5A00))
+        confidenceLow: Color(hex: 0x6F5D00))
 
     /// Dark mode — also the island's permanent palette (always-dark rule).
     public static let dark = SaaaPalette(
@@ -62,7 +62,7 @@ public struct SaaaPalette: Sendable, Equatable {
         successText: Color(hex: 0x7FC9A4),
         dangerFill: Color(hex: 0xAD2E24), dangerText: Color(hex: 0xFF8A80),
         confidenceHigh: Color(hex: 0x7CC1DB), confidenceMedium: Color(hex: 0x99A0A7),
-        confidenceLow: Color(hex: 0xFF9F0A))
+        confidenceLow: Color(hex: 0xC9A227))
 
     /// Light, increased contrast (7:1).
     public static let lightHighContrast = SaaaPalette(
@@ -77,7 +77,7 @@ public struct SaaaPalette: Sendable, Equatable {
         successText: Color(hex: 0x175237),
         dangerFill: Color(hex: 0x8F241C), dangerText: Color(hex: 0x8F241C),
         confidenceHigh: Color(hex: 0x17465C), confidenceMedium: Color(hex: 0x3E444B),
-        confidenceLow: Color(hex: 0x7E3B00))
+        confidenceLow: Color(hex: 0x524500))
 
     /// Dark, increased contrast (7:1).
     public static let darkHighContrast = SaaaPalette(
@@ -92,7 +92,7 @@ public struct SaaaPalette: Sendable, Equatable {
         successText: Color(hex: 0x9AD8BB),
         dangerFill: Color(hex: 0xFFA39B), dangerText: Color(hex: 0xFFA39B),
         confidenceHigh: Color(hex: 0xABDBF0), confidenceMedium: Color(hex: 0xB6BCC2),
-        confidenceLow: Color(hex: 0xFFB13D))
+        confidenceLow: Color(hex: 0xE3C44C))
 
     /// Resolves the palette for the current environment.
     public static func resolve(
