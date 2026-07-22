@@ -132,6 +132,12 @@ struct IslandRootView: View {
                 compactBar {
                     Lamp(.recording).matchedGeometryEffect(id: "lamp", in: lampNamespace)
                     Text("Rec").engravedLabelStyle().foregroundStyle(saaa.emberText)
+                    if controller.liveAssist.phase != .off {
+                        // "Show clearly when the mode is live" (issue #8).
+                        Text("AI")
+                            .engravedLabelStyle()
+                            .foregroundStyle(saaa.tideText)
+                    }
                 } trailing: {
                     timerReadout(font: SaaaFont.readoutValue)
                 }
@@ -204,6 +210,58 @@ struct IslandRootView: View {
                 .stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
     }
 
+    /// Live Assist block inside the expanded tier (issue #8): visibly
+    /// labeled, suggestion-not-autopilot, hotkey-first.
+    @ViewBuilder
+    private var liveAssistSection: some View {
+        HStack(spacing: Space.sm) {
+            Text("Live Assist")
+                .engravedLabelStyle()
+                .foregroundStyle(saaa.tideText)
+            Text("streams to your agent")
+                .font(SaaaFont.monoCaption)
+                .foregroundStyle(saaa.textTertiary)
+            Spacer()
+            switch controller.liveAssist.phase {
+            case .answered, .failed:
+                Button("Done") { controller.liveAssist.dismissAnswer() }
+                    .buttonStyle(.plain)
+                    .font(SaaaFont.caption)
+                    .foregroundStyle(saaa.tideText)
+            default:
+                Text("⌥⌘A answers")
+                    .font(SaaaFont.monoCaption)
+                    .foregroundStyle(saaa.textTertiary)
+            }
+        }
+        switch controller.liveAssist.phase {
+        case .thinking:
+            Text("Thinking…")
+                .font(SaaaFont.body)
+                .foregroundStyle(saaa.textSecondary)
+        case .answered(let suggestion):
+            ScrollView {
+                Text(suggestion)
+                    .font(SaaaFont.body)
+                    .foregroundStyle(saaa.textPrimary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 76)
+            Text("a suggestion, say it your way")
+                .font(SaaaFont.monoCaption)
+                .foregroundStyle(saaa.textTertiary)
+        case .failed(let message):
+            Text(message)
+                .font(SaaaFont.caption)
+                .foregroundStyle(saaa.dangerText)
+                .lineLimit(2)
+        default:
+            EmptyView()
+        }
+    }
+
     /// Tall enough to clear the notch on any model; below the menu bar on
     /// no-notch Macs (fallback capsule, never a fake notch).
     private var barHeight: CGFloat {
@@ -251,6 +309,10 @@ struct IslandRootView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop recording")
+            }
+            if controller.liveAssist.phase != .off {
+                Divider().overlay(saaa.borderHairline.opacity(0.4))
+                liveAssistSection
             }
         }
         .padding(Space.lg)

@@ -38,6 +38,19 @@ struct PromptsPane: View {
 
     private static let callTypes = ["technical", "client_preference", "standup", "other"]
 
+    /// Live Assist prompts are call-independent: global or next-call only.
+    private var availableScopes: [ScopeChoice] {
+        kind == .liveAssist ? [.global, .nextCall] : ScopeChoice.allCases
+    }
+
+    private var kindHint: String {
+        switch kind {
+        case .filing: "Variables: {project} {attendees} {date}"
+        case .vocabulary: "Comma or newline separated terms"
+        case .liveAssist: "Required for Live Assist. Variables: {attendees} {date}"
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
@@ -64,7 +77,10 @@ struct PromptsPane: View {
             if projectPath.isEmpty { projectPath = knownProjects.first ?? "" }
             reload()
         }
-        .onChange(of: kind) { reload() }
+        .onChange(of: kind) {
+            if !availableScopes.contains(scope) { scope = .global }
+            reload()
+        }
         .onChange(of: scope) { reload() }
         .onChange(of: projectPath) { reload() }
         .onChange(of: callType) { reload() }
@@ -78,18 +94,19 @@ struct PromptsPane: View {
                 Picker("", selection: $kind) {
                     Text("Filing instructions").tag(PromptKind.filing)
                     Text("Vocabulary").tag(PromptKind.vocabulary)
+                    Text("Live Assist").tag(PromptKind.liveAssist)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 280)
+                .frame(width: 380)
                 Picker("", selection: $scope) {
-                    ForEach(ScopeChoice.allCases) { choice in
+                    ForEach(availableScopes) { choice in
                         Text(choice.label).tag(choice)
                     }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 320)
+                .frame(width: kind == .liveAssist ? 200 : 320)
                 Spacer()
             }
             if scope == .project {
@@ -160,9 +177,7 @@ struct PromptsPane: View {
                     .foregroundStyle(saaa.tideText)
             }
             Spacer()
-            Text(kind == .filing
-                ? "Variables: {project} {attendees} {date}"
-                : "Comma or newline separated terms")
+            Text(kindHint)
                 .font(SaaaFont.caption)
                 .foregroundStyle(saaa.textTertiary)
         }
@@ -212,6 +227,15 @@ struct PromptsPane: View {
             ])
             return VocabularyBias.initialPrompt(terms: terms)
                 ?? "Nothing set yet on any scope."
+        case .liveAssist:
+            let parts = [
+                store.text(.liveAssist, scope: .global),
+                store.text(.liveAssist, scope: .nextCall),
+            ].compactMap { $0 }.filter { !$0.isEmpty }
+            guard !parts.isEmpty else { return "Nothing set yet. Live Assist stays off without a prompt." }
+            return PromptTemplate.render(
+                parts.joined(separator: "\n\n"),
+                project: nil, attendees: ["Jane", "Collins"], date: .now)
         }
     }
 

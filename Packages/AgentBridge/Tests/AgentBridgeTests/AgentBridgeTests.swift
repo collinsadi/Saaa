@@ -277,3 +277,30 @@ private let codex = FakeProvider(id: .codex)
         #expect(object?["required"] as? [String] == ["assignments", "confidence"])
     }
 }
+
+// MARK: - Live answers
+
+@Suite struct LiveAnswerTests {
+
+    @Test func promptIsSuggestionFramedAndCarriesTheWindow() {
+        let prompt = LiveAnswerService.prompt(
+            window: "Them: Does it work offline?",
+            question: "Does it work offline?",
+            instructions: "We sell Saaa. Everything is on-device.",
+            hasKnowledge: false)
+        #expect(prompt.contains("SUGGESTION"))
+        #expect(prompt.contains("Does it work offline?"))
+        #expect(prompt.contains("We sell Saaa"))
+        #expect(prompt.contains("Answer this:"))
+        #expect(prompt.contains("unsure"))
+    }
+
+    @Test func hotkeyModeAnswersTheLastThing() {
+        let prompt = LiveAnswerService.prompt(
+            window: "Them: and the pricing?", question: nil,
+            instructions: nil, hasKnowledge: true)
+        #expect(prompt.contains("Answer the last thing"))
+        #expect(prompt.contains("knowledge folder"))
+        #expect(!prompt.contains("User context"))
+    }
+}

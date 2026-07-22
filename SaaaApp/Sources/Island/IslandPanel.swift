@@ -57,9 +57,9 @@ final class WelcomePulse {
 @MainActor
 final class IslandController {
 
-    /// Oversized fixed panel: room for the expanded tier + peek without ever
-    /// resizing the window.
-    private static let panelSize = NSSize(width: 620, height: 260)
+    /// Oversized fixed panel: room for the expanded tier + peek (and the
+    /// Live Assist answer block) without ever resizing the window.
+    private static let panelSize = NSSize(width: 620, height: 320)
 
     private var panel: IslandPanel?
     private var screenObserver: NSObjectProtocol?

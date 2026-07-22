@@ -26,8 +26,25 @@ struct SaaaSettingsView: View {
     @AppStorage(FilingPreferences.exactModelKey) private var filingExactModel = ""
     @AppStorage("hubOpacity") private var hubOpacity = 1.0
     @AppStorage("hubFadeWhenInactive") private var hubFadeWhenInactive = false
+    @AppStorage(LiveAssistController.enabledKey) private var liveAssistEnabled = false
+    @AppStorage(LiveAssistController.autoAnswerKey) private var liveAssistAuto = false
+    @AppStorage(LiveAssistController.knowledgeFolderKey) private var liveAssistKB = ""
 
     var body: some View {
+        if embedded {
+            form
+        } else {
+            // Standalone settings scrolls at a fixed, screen-friendly size.
+            ScrollView {
+                form
+            }
+            .frame(width: 460, height: 640)
+            .background(saaa.surfaceBase)
+            .background(WindowRegistrar(surface: .settings))
+        }
+    }
+
+    private var form: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.md) {
                 BrandMark(size: 16)
@@ -127,6 +144,29 @@ struct SaaaSettingsView: View {
                 }
                 .padding(.vertical, Space.sm)
             }
+            section("Live Assist") {
+                toggleRow(
+                    "Enable Live Assist (advanced)",
+                    caption: "While you record with this armed, the rolling transcript streams continuously to your coding agent so it can suggest answers. That is a real departure from Saaa's local-only default. Everyone on the call should know. Meant for your own support, accessibility, and preparation, not for concealing assistance where you are being evaluated.",
+                    isOn: $liveAssistEnabled)
+                if liveAssistEnabled {
+                    toggleRow(
+                        "Auto-answer when a question is detected",
+                        caption: "Conservative heuristic with a cooldown. The ⌥⌘A hotkey always works.",
+                        isOn: $liveAssistAuto)
+                    labeledRow("Knowledge folder") {
+                        TextField("~/path/to/docs (optional)", text: $liveAssistKB)
+                            .textFieldStyle(.plain)
+                            .font(SaaaFont.monoBody)
+                            .foregroundStyle(saaa.textPrimary)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 230)
+                    }
+                    Text("Answers ground themselves by reading this folder with read-only tools. Also requires a Live Assist prompt (Prompts pane in the hub); without one the mode stays off.")
+                        .font(SaaaFont.caption)
+                        .foregroundStyle(saaa.textTertiary)
+                }
+            }
             section("Privacy") {
                 toggleRow(
                     "Invisible Mode",
@@ -153,9 +193,6 @@ struct SaaaSettingsView: View {
         }
         .padding(Space.xxl)
         .frame(width: 460)
-        .frame(height: embedded ? nil : (invisibleMode ? 850 : 800))
-        .background(embedded ? AnyShapeStyle(.clear) : AnyShapeStyle(saaa.surfaceBase))
-        .background(embedded ? nil : WindowRegistrar(surface: .settings))
         .onChange(of: autoDeleteAudio, initial: true) { _, enabled in
             controller.retention = RetentionPolicy(autoDeleteAudioAfterTranscription: enabled)
         }

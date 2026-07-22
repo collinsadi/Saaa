@@ -52,6 +52,8 @@ public final class CallController {
     /// User-authored vocabulary and filing instructions (issue #2).
     @ObservationIgnored private lazy var promptStore: PromptStore? =
         encryption.map { PromptStore(encryption: $0) }
+    /// The Live Assist copilot (issue #8); off unless opted in AND prompted.
+    public let liveAssist = LiveAssistController()
     /// The call vector of the last processed transcript, kept for learning
     /// when the user confirms the write-back.
     @ObservationIgnored private var lastTranscriptVector: [Double]?
@@ -230,6 +232,19 @@ public final class CallController {
                 let context = await calendarReader.eventOverlapping()
                 self.callCalendarContext = context
             }
+            if LiveAssistController.isArmed(promptStore: promptStore) {
+                liveAssist.begin(
+                    micURL: directory.appendingPathComponent("mic.wav"),
+                    systemURL: directory.appendingPathComponent("system.wav"),
+                    promptStore: promptStore,
+                    attendeesProvider: { [weak self] in
+                        self?.callCalendarContext?.attendees ?? []
+                    },
+                    transcriberProvider: { [weak self] in
+                        guard let self else { throw CancellationError() }
+                        return try await self.ensureTranscriber()
+                    })
+            }
         } catch {
             captureSession = nil
             _ = apply(.captureFailed(Self.describe(error)))
@@ -381,24 +396,34 @@ public final class CallController {
     /// The shared pipeline tail for live calls and imports: transcribe the
     /// lane(s), merge, match, judge, seal, and hand off to review. A nil
     /// `micWAV` (mono import) yields a single unattributed lane.
+    /// Loads (or reuses) the shared whisper context. Also used by Live
+    /// Assist, which must be fully drained before batch transcription runs.
+    private func ensureTranscriber() async throws -> WhisperTranscriber {
+        let modelURL = try await modelManager.ensure(.largeV3Turbo) { [weak self] progress in
+            Task { @MainActor [weak self] in
+                self?.processingDetail =
+                    "Downloading model \(Int(progress.fraction * 100))% (one-time, 1.6 GB)"
+            }
+        }
+        let vadURL = try await modelManager.ensure(.sileroVAD)
+        if cachedTranscriber == nil {
+            cachedTranscriber = try WhisperTranscriber(modelPath: modelURL, vadModelPath: vadURL)
+        }
+        guard let transcriber = cachedTranscriber else {
+            throw CancellationError()
+        }
+        return transcriber
+    }
+
     private func runPipeline(
         micWAV: URL?, systemWAV: URL, duration: TimeInterval, directory: URL
     ) async {
+        // The live streamer shares the whisper context; wait it out before
+        // batch transcription so the two never run concurrently.
+        await liveAssist.shutdownAndWait()
         do {
             processingDetail = "Preparing models…"
-            let modelURL = try await modelManager.ensure(.largeV3Turbo) { [weak self] progress in
-                Task { @MainActor [weak self] in
-                    self?.processingDetail =
-                        "Downloading model \(Int(progress.fraction * 100))% (one-time, 1.6 GB)"
-                }
-            }
-            let vadURL = try await modelManager.ensure(.sileroVAD)
-
-            if cachedTranscriber == nil {
-                processingDetail = "Loading model…"
-                cachedTranscriber = try WhisperTranscriber(modelPath: modelURL, vadModelPath: vadURL)
-            }
-            guard let transcriber = cachedTranscriber else { return }
+            let transcriber = try await ensureTranscriber()
 
             // Custom vocabulary + calendar terms pre-warm Whisper's proper
             // nouns. Project-scoped vocabulary applies when the learned

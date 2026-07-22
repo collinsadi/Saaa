@@ -9,6 +9,10 @@ public enum PromptKind: String, CaseIterable, Sendable, Codable {
     case vocabulary
     /// Shapes matching and extraction (format, focus, house style).
     case filing
+    /// Context for the Live Assist copilot (issue #8): what the user
+    /// supports, where the knowledge lives, how answers should sound.
+    /// Live Assist requires this to be set before it arms.
+    case liveAssist = "live_assist"
 }
 
 /// Where a prompt applies. Raw storage keys are stable; never rename.

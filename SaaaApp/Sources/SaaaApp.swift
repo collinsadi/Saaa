@@ -36,6 +36,7 @@ struct SaaaApp: App {
     @State private var controller: CallController
     @State private var reviewPresenter: ReviewWindowPresenter
     @State private var hotkey: HotkeyMonitor
+    @State private var assistHotkey: HotkeyMonitor
     @State private var island: IslandController
     @State private var onboardingPresenter = OnboardingPresenter()
     @State private var historyPresenter = HistoryPresenter()
@@ -54,6 +55,9 @@ struct SaaaApp: App {
         }
         _reviewPresenter = State(initialValue: presenter)
         _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
+        _assistHotkey = State(initialValue: HotkeyMonitor(
+            binding: .optionCommandA, id: 2
+        ) { controller.liveAssist.answerLastThing() })
         _island = State(initialValue: IslandController(callController: controller))
 
         // Finder "Open with Saaa": hub comes up with the files queued.

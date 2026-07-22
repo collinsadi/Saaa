@@ -28,6 +28,12 @@ public final class HotkeyMonitor {
             keyCode: UInt32(kVK_ANSI_R),
             modifiers: UInt32(optionKey | cmdKey),
             display: "⌥⌘R")
+
+        /// Live Assist "answer the last thing": ⌥⌘A.
+        public static let optionCommandA = Binding(
+            keyCode: UInt32(kVK_ANSI_A),
+            modifiers: UInt32(optionKey | cmdKey),
+            display: "⌥⌘A")
     }
 
     // nonisolated(unsafe): written once during main-actor register(), read in
@@ -35,12 +41,22 @@ public final class HotkeyMonitor {
     private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
     private nonisolated(unsafe) var eventHandlerRef: EventHandlerRef?
     private let onPress: @MainActor () -> Void
+    /// Distinguishes multiple monitors: every registered hotkey event is
+    /// delivered to every installed handler, so each handler must check
+    /// the event's id and pass on the ones that are not its own.
+    private nonisolated let hotKeyIDNumber: UInt32
 
     public private(set) var binding: Binding
 
-    /// Registers immediately; deregisters on deinit.
-    public init(binding: Binding = .optionCommandR, onPress: @escaping @MainActor () -> Void) {
+    /// Registers immediately; deregisters on deinit. `id` must be unique
+    /// per monitor within the app.
+    public init(
+        binding: Binding = .optionCommandR,
+        id: UInt32 = 1,
+        onPress: @escaping @MainActor () -> Void
+    ) {
         self.binding = binding
+        self.hotKeyIDNumber = id
         self.onPress = onPress
         register()
     }
@@ -60,9 +76,18 @@ public final class HotkeyMonitor {
             eventKind: UInt32(kEventHotKeyPressed))
 
         // C callback: hop back to the main actor and invoke the handler.
-        let callback: EventHandlerUPP = { _, _, userData in
-            guard let userData else { return noErr }
+        // Events for OTHER hotkeys pass through untouched.
+        let callback: EventHandlerUPP = { _, event, userData in
+            guard let userData, let event else { return noErr }
+            var firedID = EventHotKeyID()
+            GetEventParameter(
+                event, EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID), nil,
+                MemoryLayout<EventHotKeyID>.size, nil, &firedID)
             let monitor = Unmanaged<HotkeyMonitor>.fromOpaque(userData).takeUnretainedValue()
+            guard firedID.id == monitor.hotKeyIDNumber else {
+                return OSStatus(eventNotHandledErr)
+            }
             Task { @MainActor in
                 monitor.onPress()
             }
@@ -79,7 +104,7 @@ public final class HotkeyMonitor {
         }
         eventHandlerRef = handlerRef
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x53_41_41_41 /* 'SAAA' */), id: 1)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x53_41_41_41 /* 'SAAA' */), id: hotKeyIDNumber)
         var keyRef: EventHotKeyRef?
         let registerStatus = RegisterEventHotKey(
             binding.keyCode, binding.modifiers, hotKeyID,
