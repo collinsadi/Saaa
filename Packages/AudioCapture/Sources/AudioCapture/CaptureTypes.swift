@@ -145,3 +145,29 @@ public enum CaptureError: Error {
     case backendUnavailable
     case fileError(underlying: Error)
 }
+
+/// One slice of live 16 kHz mono audio, as written to the lane's WAV.
+/// Delivered ~10 times a second per lane for live transcription; frames
+/// count from the shared t=0, so both lanes stay sample-aligned.
+public struct LiveAudioChunk: Sendable {
+    public enum Lane: Sendable, Equatable {
+        /// The user's microphone ("Me").
+        case mic
+        /// The tapped app ("Them").
+        case system
+    }
+
+    public let lane: Lane
+    /// 16 kHz mono Int16 PCM.
+    public let samples: [Int16]
+    /// Index of the first sample on the lane's timeline.
+    public let startFrame: Int64
+
+    public init(lane: Lane, samples: [Int16], startFrame: Int64) {
+        self.lane = lane
+        self.samples = samples
+        self.startFrame = startFrame
+    }
+
+    public static let sampleRate = 16_000.0
+}

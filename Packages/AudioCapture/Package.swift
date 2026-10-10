@@ -1,9 +1,9 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "AudioCapture",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [.library(name: "AudioCapture", targets: ["AudioCapture"])],
     dependencies: [.package(path: "../Core")],
     targets: [

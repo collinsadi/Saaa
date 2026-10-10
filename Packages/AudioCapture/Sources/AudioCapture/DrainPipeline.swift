@@ -73,6 +73,10 @@ final class LanePipeline {
     /// When set and true, the lane records silence (mic mute). Levels and
     /// timeline continue — only the content is zeroed.
     var mute: BoolBox?
+    /// Receives every block of 16 kHz samples exactly as it is appended to
+    /// the WAV, with its start frame (live transcription feed). Runs on the
+    /// drain task, never the real-time thread.
+    var liveSink: (@Sendable ([Int16], Int64) -> Void)?
     private let writer: WavWriter
     private var converter: AVAudioConverter
     private var sourceFormat: AVAudioFormat
@@ -238,11 +242,13 @@ final class LanePipeline {
         var remaining = frames
         while remaining > 0 {
             let n = min(remaining, zeros.count)
+            let startFrame = Int64(writer.sampleCount)
             do {
                 try zeros.withUnsafeBufferPointer { try writer.append($0.baseAddress!, count: n) }
             } catch {
                 throw CaptureError.fileError(underlying: error)
             }
+            liveSink?(Array(zeros.prefix(n)), startFrame)
             remaining -= n
         }
     }
@@ -272,10 +278,15 @@ final class LanePipeline {
             }
             let produced = Int(outputBuffer.frameLength)
             if produced > 0 {
+                let startFrame = Int64(writer.sampleCount)
+                let samples = outputBuffer.int16ChannelData![0]
                 do {
-                    try writer.append(outputBuffer.int16ChannelData![0], count: produced)
+                    try writer.append(samples, count: produced)
                 } catch {
                     throw CaptureError.fileError(underlying: error)
+                }
+                if let liveSink {
+                    liveSink(Array(UnsafeBufferPointer(start: samples, count: produced)), startFrame)
                 }
             }
             switch status {

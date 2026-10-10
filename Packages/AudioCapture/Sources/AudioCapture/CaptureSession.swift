@@ -23,6 +23,12 @@ public actor CaptureSession {
     public nonisolated let events: AsyncStream<CaptureEvent>
     private let eventContinuation: AsyncStream<CaptureEvent>.Continuation
 
+    /// Live 16 kHz audio for both lanes (single consumer: live
+    /// transcription). Finishes after the final drain at stop. Buffers ~50 s
+    /// per lane if the consumer stalls, then drops the oldest chunks.
+    public nonisolated let liveAudio: AsyncStream<LiveAudioChunk>
+    private let liveAudioContinuation: AsyncStream<LiveAudioChunk>.Continuation
+
     // Shared with the RT/handler threads.
     private let micRing = RingBuffer(minimumCapacity: 1 << 19)
     private let sysRing = RingBuffer(minimumCapacity: 1 << 19)
@@ -64,6 +70,8 @@ public actor CaptureSession {
         self.configuration = configuration
         (events, eventContinuation) = AsyncStream.makeStream(
             of: CaptureEvent.self, bufferingPolicy: .bufferingNewest(256))
+        (liveAudio, liveAudioContinuation) = AsyncStream.makeStream(
+            of: LiveAudioChunk.self, bufferingPolicy: .bufferingNewest(1_000))
     }
 
     // MARK: - Start
@@ -113,6 +121,7 @@ public actor CaptureSession {
         } catch {
             // The session is unusable — release any subscriber.
             eventContinuation.finish()
+            liveAudioContinuation.finish()
             throw error
         }
 
@@ -188,6 +197,7 @@ public actor CaptureSession {
         let stopFlag = stopFlag
         let micMute = micMute
         let continuation = eventContinuation
+        let liveContinuation = liveAudioContinuation
         let backend = backend
         let targetOutputActive = targetOutputActive
         // A drain failure must stop the whole session — without this the
@@ -208,9 +218,15 @@ public actor CaptureSession {
                 if micPipe == nil, let format = micFormatBox.current {
                     micPipe = try LanePipeline(ring: micRing, gap: micGap, fileURL: micURL, format: format)
                     micPipe?.mute = micMute
+                    micPipe?.liveSink = { samples, start in
+                        liveContinuation.yield(LiveAudioChunk(lane: .mic, samples: samples, startFrame: start))
+                    }
                 }
                 if sysPipe == nil, let format = sysFormatBox.current {
                     sysPipe = try LanePipeline(ring: sysRing, gap: sysGap, fileURL: sysURL, format: format)
+                    sysPipe?.liveSink = { samples, start in
+                        liveContinuation.yield(LiveAudioChunk(lane: .system, samples: samples, startFrame: start))
+                    }
                 }
                 if let pipe = micPipe, let format = micFormatBox.current, format != pipe.format {
                     try pipe.reconfigure(to: format)
@@ -276,6 +292,8 @@ public actor CaptureSession {
                         code: "finalize", detail: String(describing: error))
                 }
             }
+            // Every live chunk (including the converter tail) is out.
+            liveContinuation.finish()
             summary.duration = micPipe?.duration ?? 0
             func stats(_ pipe: LanePipeline?, _ label: String) -> String {
                 guard let pipe else { return "\(label): never materialized" }

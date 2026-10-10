@@ -59,6 +59,9 @@ public final class WavWriter {
         }
     }
 
+    /// Samples (frames, mono) written so far.
+    public var sampleCount: Int { dataBytes / 2 }
+
     /// Duration of audio written so far, in seconds.
     public var duration: TimeInterval {
         TimeInterval(dataBytes / 2) / TimeInterval(sampleRate)
