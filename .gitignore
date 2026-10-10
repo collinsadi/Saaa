@@ -26,3 +26,7 @@ dist/
 
 # Design playground (HTML+Tailwind mirror of the app, local only)
 theme/
+
+.env
+.agent/
+.build-xcode/
