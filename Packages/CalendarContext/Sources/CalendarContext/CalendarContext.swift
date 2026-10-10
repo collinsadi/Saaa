@@ -87,3 +87,74 @@ public actor CalendarReader {
             title: best.title, attendees: best.attendees, notes: best.notes)
     }
 }
+
+/// A calendar event near now, for meeting detection and the Home "Up next".
+public struct UpcomingEvent: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let title: String
+    public let start: Date
+    public let end: Date
+    public let attendees: [String]
+    public let notes: String?
+    /// The event carries a video link (Zoom, Meet, Teams, Webex…).
+    public let hasConferenceLink: Bool
+
+    public init(id: String, title: String, start: Date, end: Date, attendees: [String], notes: String?, hasConferenceLink: Bool) {
+        self.id = id
+        self.title = title
+        self.start = start
+        self.end = end
+        self.attendees = attendees
+        self.notes = notes
+        self.hasConferenceLink = hasConferenceLink
+    }
+
+    public var context: Core.CalendarContext {
+        Core.CalendarContext(title: title, attendees: attendees, notes: notes)
+    }
+
+    /// Worth offering to record: a meeting, not a focus block.
+    public var looksLikeAMeeting: Bool {
+        hasConferenceLink || !attendees.isEmpty
+    }
+
+    static let conferenceHosts = [
+        "zoom.us", "meet.google.com", "teams.microsoft.com", "teams.live.com", "webex.com",
+        "whereby.com", "around.co", "facetime.apple.com", "gather.town", "chime.aws",
+    ]
+
+    public static func containsConferenceLink(_ texts: [String?]) -> Bool {
+        texts.compactMap { $0?.lowercased() }.contains { text in
+            conferenceHosts.contains { text.contains($0) }
+        }
+    }
+}
+
+extension CalendarReader {
+
+    /// Whether Saaa can read events (never prompts).
+    public static var hasAccess: Bool {
+        EKEventStore.authorizationStatus(for: .event) == .fullAccess
+    }
+
+    /// Timed events overlapping `start...end`, soonest first. Never shows the
+    /// permission dialog: without access this is empty.
+    public func events(from start: Date, to end: Date) -> [UpcomingEvent] {
+        guard Self.hasAccess else { return [] }
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        return store.events(matching: predicate)
+            .filter { !$0.isAllDay && !($0.title ?? "").isEmpty }
+            .map { event in
+                UpcomingEvent(
+                    id: "\(event.eventIdentifier ?? "event")-\(event.startDate.timeIntervalSince1970)",
+                    title: event.title ?? "",
+                    start: event.startDate,
+                    end: event.endDate,
+                    attendees: (event.attendees ?? []).compactMap { $0.name ?? $0.url.absoluteString },
+                    notes: event.notes,
+                    hasConferenceLink: UpcomingEvent.containsConferenceLink(
+                        [event.url?.absoluteString, event.location, event.notes]))
+            }
+            .sorted { $0.start < $1.start }
+    }
+}

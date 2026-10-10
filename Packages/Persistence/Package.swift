@@ -1,13 +1,13 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "Persistence",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [.library(name: "Persistence", targets: ["Persistence"])],
-    dependencies: [.package(path: "../Core"), .package(path: "../ClaudeBridge"), .package(path: "../Matching")],
+    dependencies: [.package(path: "../Core")],
     targets: [
-        .target(name: "Persistence", dependencies: [.product(name: "Core", package: "Core"), .product(name: "ClaudeBridge", package: "ClaudeBridge"), .product(name: "Matching", package: "Matching")]),
+        .target(name: "Persistence", dependencies: [.product(name: "Core", package: "Core")]),
         .testTarget(name: "PersistenceTests", dependencies: ["Persistence"]),
     ]
 )

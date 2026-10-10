@@ -51,3 +51,20 @@ import Testing
         #expect(!terms.contains("com"))
     }
 }
+
+@Suite struct UpcomingEventTests {
+
+    @Test func detectsConferenceLinks() {
+        #expect(UpcomingEvent.containsConferenceLink([nil, "https://acme.zoom.us/j/123", nil]))
+        #expect(UpcomingEvent.containsConferenceLink(["Join: meet.google.com/abc-defg-hij"]))
+        #expect(!UpcomingEvent.containsConferenceLink(["Room 4B", nil]))
+    }
+
+    @Test func meetingHeuristic() {
+        let focus = UpcomingEvent(id: "1", title: "Focus", start: .now, end: .now, attendees: [], notes: nil, hasConferenceLink: false)
+        let call = UpcomingEvent(id: "2", title: "Sync", start: .now, end: .now, attendees: ["Sam"], notes: nil, hasConferenceLink: false)
+        #expect(!focus.looksLikeAMeeting)
+        #expect(call.looksLikeAMeeting)
+        #expect(call.context.title == "Sync")
+    }
+}

@@ -29,17 +29,17 @@ public final class HotkeyMonitor {
             modifiers: UInt32(optionKey | cmdKey),
             display: "⌥⌘R")
 
-        /// Live Assist "answer the last thing": ⌥⌘A.
+        /// Answer what they just asked: ⌥⌘A.
         public static let optionCommandA = Binding(
             keyCode: UInt32(kVK_ANSI_A),
             modifiers: UInt32(optionKey | cmdKey),
             display: "⌥⌘A")
 
-        /// Code Assist region capture: ⇧⌥⌘C.
-        public static let shiftOptionCommandC = Binding(
-            keyCode: UInt32(kVK_ANSI_C),
-            modifiers: UInt32(shiftKey | optionKey | cmdKey),
-            display: "⇧⌥⌘C")
+        /// Open the live panel with the Ask field focused: ⌥⌘K.
+        public static let optionCommandK = Binding(
+            keyCode: UInt32(kVK_ANSI_K),
+            modifiers: UInt32(optionKey | cmdKey),
+            display: "⌥⌘K")
     }
 
     // nonisolated(unsafe): written once during main-actor register(), read in
