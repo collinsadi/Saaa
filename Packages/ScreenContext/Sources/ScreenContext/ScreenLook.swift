@@ -29,6 +29,12 @@ public enum ScreenLook {
         WindowCapture.frontmostTarget(preferring: frontmostPID, excluding: excludingPID)?.windowID
     }
 
+    /// The front window's title, when Screen Recording allows reading it.
+    /// It helps pick the right editor window; it isn't sent anywhere.
+    public static func frontWindowTitle(frontmostPID: pid_t?, excludingPID: pid_t) -> String? {
+        WindowCapture.frontmostTarget(preferring: frontmostPID, excluding: excludingPID)?.title
+    }
+
     /// Seconds since the last key press: Watch reads only after a pause.
     public static func secondsSinceTyping() -> Double {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)

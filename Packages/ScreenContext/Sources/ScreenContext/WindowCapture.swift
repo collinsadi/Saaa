@@ -9,6 +9,8 @@ struct WindowTarget: Sendable, Equatable {
     let ownerPID: pid_t
     let ownerName: String
     let bounds: CGRect
+    /// Only with Screen Recording allowed; nil otherwise.
+    var title: String? = nil
 }
 
 enum WindowCapture {
@@ -29,7 +31,8 @@ enum WindowCapture {
             if let alpha = info[kCGWindowAlpha as String] as? Double, alpha < 0.05 { return nil }
             return WindowTarget(
                 windowID: CGWindowID(number), ownerPID: pid_t(owner),
-                ownerName: info[kCGWindowOwnerName as String] as? String ?? "", bounds: bounds)
+                ownerName: info[kCGWindowOwnerName as String] as? String ?? "", bounds: bounds,
+                title: info[kCGWindowName as String] as? String)
         }
         if let preferred, let match = candidates.first(where: { $0.ownerPID == preferred }) {
             return match

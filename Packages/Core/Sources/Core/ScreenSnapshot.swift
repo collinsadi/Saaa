@@ -25,6 +25,15 @@ public enum ScreenScene: String, Sendable, Codable, Equatable, CaseIterable {
     }
 }
 
+/// Where a snapshot's text came from.
+public enum ScreenSource: String, Sendable, Codable, Equatable {
+    /// Read from a window's pixels by on-device text recognition.
+    case window
+    /// Exact text from an editor extension: the visible lines, problems,
+    /// the selection and the last failed terminal command.
+    case editor
+}
+
 /// The text Saaa read from one window, on this Mac, after redaction. It is
 /// exactly what a Look sends to Claude: the screenshot itself never leaves
 /// the capture call, and this text is kept in memory only, never sealed.
@@ -39,10 +48,11 @@ public struct ScreenSnapshot: Sendable, Equatable {
     /// The window held more text than one Look sends.
     public var truncated: Bool
     public var capturedAt: Date
+    public var source: ScreenSource
 
     public init(
         appName: String, windowTitle: String? = nil, text: String, scene: ScreenScene,
-        redactions: Int = 0, truncated: Bool = false, capturedAt: Date = .now
+        redactions: Int = 0, truncated: Bool = false, capturedAt: Date = .now, source: ScreenSource = .window
     ) {
         self.appName = appName
         self.windowTitle = windowTitle
@@ -51,6 +61,7 @@ public struct ScreenSnapshot: Sendable, Equatable {
         self.redactions = redactions
         self.truncated = truncated
         self.capturedAt = capturedAt
+        self.source = source
     }
 
     /// "Xcode · PromptComposer.swift", or just the app.
