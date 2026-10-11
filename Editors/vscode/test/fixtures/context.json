@@ -1,0 +1,39 @@
+{
+  "file": "src/app.ts",
+  "language": "typescript",
+  "lineCount": 10,
+  "cursorLine": 5,
+  "visible": [
+    {
+      "startLine": 1,
+      "text": "import { load } from \"./load\";\n\nexport function total(items: number[]): number {\n  let sum = 0;\n  for (const item of items) sum += item.value;\n  return sum;\n}"
+    },
+    {
+      "startLine": 9,
+      "text": "export const answer = total(load());"
+    }
+  ],
+  "snippets": [],
+  "selection": "item.value",
+  "problems": [
+    {
+      "line": 5,
+      "severity": "error",
+      "message": "Property 'value' does not exist on type 'number'.",
+      "source": "ts",
+      "code": "2339"
+    },
+    {
+      "line": 10,
+      "severity": "warning",
+      "message": "'unused' is declared but its value is never read.",
+      "source": "ts",
+      "code": "6133"
+    }
+  ],
+  "terminal": {
+    "command": "npm test",
+    "exitCode": 1,
+    "output": "FAIL src/app.test.ts\n  total adds values"
+  }
+}

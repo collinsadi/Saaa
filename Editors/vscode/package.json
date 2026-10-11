@@ -1,0 +1,66 @@
+{
+  "name": "saaa",
+  "displayName": "Saaa",
+  "description": "Lets the Saaa Mac app read this editor's exact text, problems and last failed command when you press Look or turn on Watch.",
+  "version": "0.1.0",
+  "publisher": "collinsadi",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/collinsadi/Saaa.git",
+    "directory": "Editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "saaa",
+    "code assist",
+    "macos"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Saaa",
+      "properties": {
+        "saaa.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let Saaa read this editor when you press Look or Watch is on. Saaa asks only then; this extension never sends anything on its own."
+        },
+        "saaa.shareTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the last failed terminal command and the end of its output. Output is kept in memory only."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "saaa.toggle",
+        "title": "Turn Editor Sharing On or Off",
+        "category": "Saaa"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "tsc -p . && node --test \"out/test/**/*.test.js\"",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "~1.93.0",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "~5.9.3"
+  }
+}
