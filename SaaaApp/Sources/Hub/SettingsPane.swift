@@ -461,6 +461,15 @@ private struct CodeAssistSection: View {
                 Text("Learning mode")
                 Text("Coding problems start with a nudge instead of the approach.")
             }
+            LabeledContent {
+                Text(model.editorConnections.isEmpty ? "Not connected" : model.editorConnections.joined(separator: ", "))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+            } label: {
+                Text("Editor extension")
+                Text("With the Saaa extension, VS Code, Cursor and Windsurf send their exact text, errors and last failed command instead of Saaa reading the screen.")
+            }
             LabeledContent("Code Assist panel") {
                 Button("Open") { model.openCodeAssist() }
             }

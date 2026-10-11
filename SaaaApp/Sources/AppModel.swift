@@ -69,6 +69,8 @@ final class AppModel {
     var askFocusToken = 0
     /// The live consent banner was handled for this session.
     var consentHandled = false
+    /// Editor windows with the Saaa extension connected, as "App (workspace)".
+    private(set) var editorConnections: [String] = []
     /// ⌥⌘L and Code Assist outside calls.
     var codeAssistEnabled = UserDefaults.standard.bool(forKey: CodeAssistSettings.enabledKey) {
         didSet { UserDefaults.standard.set(codeAssistEnabled, forKey: CodeAssistSettings.enabledKey) }
@@ -118,6 +120,9 @@ final class AppModel {
         migrateLegacyData()
         refreshLibrary()
         detector.start()
+        CodeAssistBridge.startEditorBridge { [weak self] connections in
+            Task { @MainActor in self?.editorConnections = connections }
+        }
     }
 
     // MARK: - Library

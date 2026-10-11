@@ -375,7 +375,9 @@ struct SentScreenText: View {
     }
 
     private var summary: String {
-        var parts = [snapshot.sourceLabel, "\(snapshot.lineCount) lines", snapshot.scene.label.lowercased()]
+        var parts = [snapshot.sourceLabel]
+        if snapshot.source == .editor { parts.append("exact text from the editor") }
+        parts += ["\(snapshot.lineCount) lines", snapshot.scene.label.lowercased()]
         if snapshot.redactions > 0 {
             parts.append(snapshot.redactions == 1 ? "1 secret hidden" : "\(snapshot.redactions) secrets hidden")
         }

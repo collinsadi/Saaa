@@ -29,4 +29,21 @@ public enum CodeAssistBridge {
     public static func prewarm() {
         if ScreenLook.hasPermission { ScreenLook.prewarm() }
     }
+
+    /// Opens the local socket editor extensions connect to, and reports the
+    /// connected windows as "App (workspace)". Without it, Look reads the
+    /// screen as before.
+    public static func startEditorBridge(onChange: @escaping @Sendable ([String]) -> Void) {
+        do {
+            try EditorBridge.shared.start()
+        } catch {
+            return
+        }
+        EditorBridge.shared.onPeersChange { peers in
+            onChange(peers.map { peer in
+                guard let workspace = peer.workspace, !workspace.isEmpty else { return peer.app }
+                return "\(peer.app) (\(workspace))"
+            })
+        }
+    }
 }

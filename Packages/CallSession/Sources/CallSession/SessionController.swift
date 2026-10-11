@@ -300,11 +300,20 @@ public final class SessionController {
     }
 
     /// Look: the active app's front window, read on this Mac. Saaa's
-    /// panels never activate, so the user's app stays frontmost.
+    /// panels never activate, so the user's app stays frontmost. An editor
+    /// with the Saaa extension answers with exact text; anything else, or
+    /// an editor that doesn't answer in time, is read from the screen.
     static func readScreen() async throws -> ScreenSnapshot {
-        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        return try await ScreenLook.snapshot(
-            frontmostPID: frontmost, excludingPID: ProcessInfo.processInfo.processIdentifier)
+        let front = NSWorkspace.shared.frontmostApplication
+        let me = ProcessInfo.processInfo.processIdentifier
+        if let front, front.processIdentifier != me {
+            let title = ScreenLook.frontWindowTitle(frontmostPID: front.processIdentifier, excludingPID: me)
+            if let exact = await EditorLook.snapshot(
+                appPID: front.processIdentifier, bundleID: front.bundleIdentifier, windowTitle: title) {
+                return exact
+            }
+        }
+        return try await ScreenLook.snapshot(frontmostPID: front?.processIdentifier, excludingPID: me)
     }
 
     // MARK: - Feeds
