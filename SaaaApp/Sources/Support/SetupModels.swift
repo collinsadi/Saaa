@@ -24,10 +24,18 @@ final class ClaudeConnectionSetup {
     }
 
     var entry = ""
+    /// An invite code (SAAA-…) for a hosted account, or a link code from
+    /// another Mac on one.
+    var inviteEntry = ""
     /// The relay address; Settings can point it at a self-hosted relay.
     var serverText: String
     private(set) var state: State = .idle
     private(set) var connection: RelayConnection?
+    /// This month's use on the server; nil until loaded or when the server
+    /// is too old to report it.
+    private(set) var usage: SaaaRelay.Usage?
+    /// A code for adding another Mac to this hosted account.
+    private(set) var linkCode: (code: String, expires: Date)?
 
     @ObservationIgnored private let store: RelayConnectionStore
 
@@ -39,6 +47,11 @@ final class ClaudeConnectionSetup {
     }
 
     var isConnected: Bool { connection != nil }
+    var isHosted: Bool { connection?.isHosted == true }
+
+    var canJoin: Bool {
+        state != .checking && !inviteEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && serverURL != nil
+    }
     var isChecking: Bool { state == .checking }
     var isVerified: Bool {
         if case .verified = state { return true }
@@ -106,6 +119,69 @@ final class ClaudeConnectionSetup {
         }
     }
 
+    /// Opens a hosted account with an invite code, or joins one with a link
+    /// code from another Mac, then times one tiny request end to end.
+    func join(onConnected: @escaping @MainActor () -> Void = {}) {
+        let code = inviteEntry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else { return }
+        guard let server = serverURL else {
+            state = .failed(serverText.isEmpty
+                ? "Enter your Saaa server's address in Settings first."
+                : "The server address needs to start with https://.")
+            return
+        }
+        state = .checking
+        let label = Host.current().localizedName ?? "Mac"
+        let store = self.store
+        Task {
+            do {
+                let relay = SaaaRelay(server: server)
+                let registration = code.uppercased().hasPrefix("SAAA")
+                    ? try await relay.joinHosted(inviteCode: code, label: label)
+                    : try await relay.joinHosted(linkCode: code, label: label)
+                try store.save(registration.connection)
+                connection = registration.connection
+                inviteEntry = ""
+                onConnected()
+            } catch {
+                state = .failed(Self.message(for: error, host: server.host() ?? server.absoluteString))
+                return
+            }
+            refreshUsage()
+            do {
+                let check = try await AnthropicClient.relay(store).verifyKey(model: ModelRole.live.modelID())
+                state = .verified(Self.describe(check))
+            } catch {
+                state = .failed("Joined, but a test answer failed: \(Self.message(for: error, host: server.host() ?? ""))")
+            }
+        }
+    }
+
+    /// Loads this month's use from the server. Older servers don't report
+    /// it; then nothing shows.
+    func refreshUsage() {
+        guard let current = connection else {
+            usage = nil
+            return
+        }
+        Task {
+            usage = try? await SaaaRelay(server: current.server).usage(token: current.token)
+        }
+    }
+
+    /// A code that adds another Mac to this hosted account.
+    func makeLinkCode() {
+        guard let current = connection, current.isHosted else { return }
+        Task {
+            do {
+                let code = try await SaaaRelay(server: current.server).linkCode(token: current.token)
+                linkCode = (code.linkCode, Date.now.addingTimeInterval(TimeInterval(code.expiresIn)))
+            } catch {
+                state = .failed(Self.message(for: error, host: current.server.host() ?? ""))
+            }
+        }
+    }
+
     /// Re-checks the connection end to end.
     func test() {
         state = .checking
@@ -129,6 +205,8 @@ final class ClaudeConnectionSetup {
             try? await SaaaRelay(server: current.server).signOut(token: current.token)
             store.delete()
             connection = nil
+            usage = nil
+            linkCode = nil
             state = .idle
             onDone()
         }
@@ -150,6 +228,8 @@ final class ClaudeConnectionSetup {
             }
             store.delete()
             connection = nil
+            usage = nil
+            linkCode = nil
             state = .idle
             onDone()
         }

@@ -67,15 +67,57 @@ private struct ClaudeSection: View {
                         }
                     }
                 }
+                if let usage = setup.usage {
+                    LabeledContent(setup.isHosted ? "Allowance" : "On the server this month") {
+                        Text(Self.describe(usage))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if setup.isHosted {
+                    LabeledContent("Add another Mac") {
+                        if let link = setup.linkCode, link.expires > .now {
+                            VStack(alignment: .trailing, spacing: 1) {
+                                Text(link.code)
+                                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                                    .textSelection(.enabled)
+                                Text("Enter it on the other Mac within 10 minutes.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Button("Get a code") { setup.makeLinkCode() }
+                                .disabled(setup.isChecking)
+                        }
+                    }
+                }
             }
-            LabeledContent(setup.isConnected ? "Replace key" : "API key") {
-                HStack(spacing: Space.sm) {
-                    SecureField("sk-ant-…", text: $setup.entry)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 220)
-                        .onSubmit(connect)
-                    Button(setup.isConnected ? "Replace" : "Connect", action: connect)
-                        .disabled(!setup.canSubmit)
+            if !setup.isHosted {
+                LabeledContent(setup.isConnected ? "Replace key" : "API key") {
+                    HStack(spacing: Space.sm) {
+                        SecureField("sk-ant-…", text: $setup.entry)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(minWidth: 220)
+                            .onSubmit(connect)
+                        Button(setup.isConnected ? "Replace" : "Connect", action: connect)
+                            .disabled(!setup.canSubmit)
+                    }
+                }
+            }
+            if !setup.isConnected {
+                LabeledContent {
+                    HStack(spacing: Space.sm) {
+                        TextField("SAAA-XXXX-XXXX", text: $setup.inviteEntry)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(minWidth: 160)
+                            .onSubmit(join)
+                        Button("Join", action: join)
+                            .disabled(!setup.canJoin)
+                    }
+                } label: {
+                    Text("Invite code")
+                    Text("For Saaa's hosted beta: no key of your own. A code from your other Mac works here too.")
                 }
             }
             switch setup.state {
@@ -103,8 +145,10 @@ private struct ClaudeSection: View {
             }
             if setup.isConnected {
                 LabeledContent("Remove") {
-                    Button("Delete key from server…", role: .destructive) { confirmDelete = true }
-                        .disabled(setup.isChecking)
+                    Button(setup.isHosted ? "Delete account from server…" : "Delete key from server…", role: .destructive) {
+                        confirmDelete = true
+                    }
+                    .disabled(setup.isChecking)
                 }
             }
             if let url = URL(string: "https://console.anthropic.com/settings/keys") {
@@ -114,8 +158,9 @@ private struct ClaudeSection: View {
         } header: {
             Text("Claude")
         } footer: {
-            Text("Bring your own key. It's sent once to your Saaa server, which checks it with Anthropic, encrypts it and keeps it there. This Mac stores only an access token, so there are no Keychain prompts. Requests pass through the server on their way to Anthropic; the server doesn't keep what's in them.")
+            Text("Bring your own key. It's sent once to your Saaa server, which checks it with Anthropic, encrypts it and keeps it there. This Mac stores only an access token, so there are no Keychain prompts. Requests pass through the server on their way to Anthropic; the server doesn't keep what's in them, only counts of tokens and cost. With an invite code, the hosted beta uses the server's key within a monthly allowance instead.")
         }
+        .task { setup.refreshUsage() }
         .confirmationDialog("Delete your key from the server?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete key", role: .destructive) {
                 setup.deleteFromServer { model.refreshKeyState() }
@@ -128,6 +173,24 @@ private struct ClaudeSection: View {
     private func connect() {
         guard setup.canSubmit else { return }
         setup.connect { model.refreshKeyState() }
+    }
+
+    private func join() {
+        guard setup.canJoin else { return }
+        setup.join { model.refreshKeyState() }
+    }
+
+    /// "$1.20 of $5.00 used, resets Nov 1" or "$0.42 across 120 requests".
+    static func describe(_ usage: SaaaRelay.Usage) -> String {
+        let spent = UsageLedger.format(usage.costUsd)
+        if let budget = usage.budgetUsd {
+            var text = "\(spent) of \(UsageLedger.format(budget)) used"
+            if let resets = usage.resetsAt {
+                text += ", resets \(resets.formatted(.dateTime.month(.abbreviated).day()))"
+            }
+            return text
+        }
+        return usage.requests == 1 ? "\(spent) across 1 request" : "\(spent) across \(usage.requests) requests"
     }
 }
 
