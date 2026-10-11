@@ -7,6 +7,7 @@ import Core
 import Foundation
 import Observation
 import Persistence
+import ScreenContext
 import Transcription
 import os
 
@@ -282,9 +283,11 @@ public final class SessionController {
             let engine = CopilotEngine(
                 playbook: playbook, context: context, service: client, defaults: defaults,
                 transcript: { [weak self] in self?.transcript ?? LiveTranscript() },
-                callTime: { [weak self] in self?.callTime ?? 0 })
+                callTime: { [weak self] in self?.callTime ?? 0 },
+                screenReader: { try await Self.readScreen() })
             copilot = engine
             engine.prewarm()
+            if ScreenLook.hasPermission { ScreenLook.prewarm() }
         } else {
             copilotOffReason = "Connect Claude in Settings to get live answers."
         }
@@ -294,6 +297,14 @@ public final class SessionController {
                 self?.copilot?.tick()
             }
         }
+    }
+
+    /// Look: the active app's front window, read on this Mac. Saaa's
+    /// panels never activate, so the user's app stays frontmost.
+    static func readScreen() async throws -> ScreenSnapshot {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        return try await ScreenLook.snapshot(
+            frontmostPID: frontmost, excludingPID: ProcessInfo.processInfo.processIdentifier)
     }
 
     // MARK: - Feeds

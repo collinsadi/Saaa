@@ -2,6 +2,7 @@ import AppKit
 import CallSession
 import Core
 import DesignSystem
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -78,6 +79,8 @@ final class AppShell {
     private let prep: PrepPresenter
     private let onboarding: OnboardingPresenter
     private var hotkeys: [HotkeyMonitor] = []
+    /// ⌥⌘L, held only while a session is live.
+    private var lookHotkey: HotkeyMonitor?
 
     init() {
         let model = AppModel()
@@ -102,6 +105,7 @@ final class AppShell {
             HotkeyMonitor(binding: .optionCommandA, id: 2) { [weak model] in model?.answerNow() },
             HotkeyMonitor(binding: .optionCommandK, id: 3) { [weak model] in model?.focusAsk() },
         ]
+        trackLiveHotkeys()
 
         SaaaAppDelegate.openHandler = { [weak self] urls in self?.importFiles(urls) }
         SaaaAppDelegate.reopenHandler = { [weak self] in self?.model.openHub() }
@@ -114,6 +118,21 @@ final class AppShell {
             Task { @MainActor [weak self] in
                 self?.runOnboarding()
             }
+        }
+    }
+
+    /// Registers ⌥⌘L while a session is live and releases it after, so
+    /// Finder and Safari keep their Downloads shortcut the rest of the time.
+    private func trackLiveHotkeys() {
+        let live = withObservationTracking {
+            model.session.isLive
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.trackLiveHotkeys() }
+        }
+        if live, lookHotkey == nil {
+            lookHotkey = HotkeyMonitor(binding: .optionCommandL, id: 4) { [weak model] in model?.lookAtScreen() }
+        } else if !live {
+            lookHotkey = nil
         }
     }
 
@@ -220,6 +239,8 @@ struct SaaaMenu: View {
             Button("Answer what they asked") { model.answerNow() }
                 .disabled(session.copilot == nil)
             Button("Ask Saaa…") { model.focusAsk() }
+                .disabled(session.copilot == nil)
+            Button("Look at my screen") { model.lookAtScreen() }
                 .disabled(session.copilot == nil)
             Button(model.panelExpanded ? "Hide the live panel" : "Show the live panel") {
                 model.panelExpanded.toggle()

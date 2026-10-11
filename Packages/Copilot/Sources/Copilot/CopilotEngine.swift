@@ -31,6 +31,13 @@ public final class CopilotEngine {
     public private(set) var notice: String?
     /// Rolling first-token latencies (seconds) for Settings.
     public private(set) var firstTokenSamples: [Double] = []
+    /// A Look is reading the screen (before its request goes out).
+    public private(set) var isLooking = false
+    /// The last Look stopped because Screen Recording isn't allowed.
+    public private(set) var screenPermissionNeeded = false
+    /// The screen text each Look sent, by exchange: memory only, never
+    /// sealed with the session, gone when the call ends.
+    public private(set) var screenSnapshots: [UUID: ScreenSnapshot] = [:]
 
     public var playbook: Playbook {
         didSet { composer.playbook = playbook }
@@ -45,6 +52,8 @@ public final class CopilotEngine {
     @ObservationIgnored private let service: any ClaudeService
     @ObservationIgnored private let transcript: @MainActor () -> LiveTranscript
     @ObservationIgnored private let callTime: @MainActor () -> TimeInterval
+    @ObservationIgnored private let screenReader: (@MainActor () async throws -> ScreenSnapshot)?
+    @ObservationIgnored private var lookTask: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var answerTask: Task<Void, Never>?
     @ObservationIgnored private var notesTask: Task<Void, Never>?
@@ -60,6 +69,8 @@ public final class CopilotEngine {
     /// Live notes refresh no more often than this, and only after enough new talk.
     public static let notesInterval: TimeInterval = 75
     public static let notesMinimumNewWords = 60
+    /// The action id Look answers carry in the thread.
+    public static let lookActionID = "look"
 
     public init(
         playbook: Playbook,
@@ -67,7 +78,8 @@ public final class CopilotEngine {
         service: any ClaudeService,
         defaults: UserDefaults = .standard,
         transcript: @escaping @MainActor () -> LiveTranscript,
-        callTime: @escaping @MainActor () -> TimeInterval
+        callTime: @escaping @MainActor () -> TimeInterval,
+        screenReader: (@MainActor () async throws -> ScreenSnapshot)? = nil
     ) {
         self.playbook = playbook
         self.context = context
@@ -75,6 +87,7 @@ public final class CopilotEngine {
         self.defaults = defaults
         self.transcript = transcript
         self.callTime = callTime
+        self.screenReader = screenReader
         self.autoSuggestEnabled = playbook.autoSuggest
         self.liveNotesEnabled = playbook.liveNotes
         self.composer = PromptComposer(playbook: playbook, context: context)
@@ -86,6 +99,9 @@ public final class CopilotEngine {
     public var latest: CopilotExchange? { thread.last }
 
     public var pinned: [CopilotExchange] { thread.filter(\.isPinned) }
+
+    /// This session can read the screen.
+    public var canLook: Bool { screenReader != nil }
 
     // MARK: - User intents
 
@@ -118,12 +134,55 @@ public final class CopilotEngine {
         pendingQuestion = nil
     }
 
-    /// More detail or another try on an earlier answer.
+    /// Look: reads the frontmost window on this Mac and answers with the
+    /// call and the screen together. `question` comes from the Ask field.
+    /// The screen text rides in the request's uncached tail and stays in
+    /// memory for What was sent; it is never sealed with the session.
+    public func look(question: String? = nil) {
+        guard !finished, let screenReader, !isLooking else { return }
+        let trimmed = question?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let asked: String? = trimmed.isEmpty ? nil : trimmed
+        isLooking = true
+        lookTask = Task { [weak self] in
+            let outcome: Result<ScreenSnapshot, ScreenReadError>
+            do {
+                outcome = .success(try await screenReader())
+            } catch let error as ScreenReadError {
+                outcome = .failure(error)
+            } catch {
+                outcome = .failure(.failed(String(describing: type(of: error))))
+            }
+            guard let self else { return }
+            self.isLooking = false
+            guard !self.finished, !Task.isCancelled else { return }
+            switch outcome {
+            case .success(let snapshot):
+                self.screenPermissionNeeded = false
+                let id = self.start(
+                    .look(snapshot, question: asked), kind: .action, actionID: Self.lookActionID,
+                    title: "Look", prompt: asked ?? snapshot.sourceLabel)
+                if let id { self.screenSnapshots[id] = snapshot }
+            case .failure(let error):
+                self.screenPermissionNeeded = error == .permissionNeeded
+                self.notice = error.userMessage
+            }
+        }
+    }
+
+    /// More detail or another try on an earlier answer. A Look's rework
+    /// sees the same screen text again.
     public func refine(_ id: UUID, _ refinement: PromptComposer.Refinement) {
         guard let original = thread.first(where: { $0.id == id }), !original.response.isEmpty else { return }
-        start(.refine(previous: original.response, refinement: refinement),
-              kind: original.kind, actionID: original.actionID,
-              title: "\(original.title) · \(refinement.title.lowercased())", prompt: original.prompt)
+        let snapshot = screenSnapshots[id]
+        let task: PromptComposer.LiveTask = if let snapshot {
+            .refineLook(snapshot, previous: original.response, refinement: refinement)
+        } else {
+            .refine(previous: original.response, refinement: refinement)
+        }
+        let newID = start(
+            task, kind: original.kind, actionID: original.actionID,
+            title: "\(original.title) · \(refinement.title.lowercased())", prompt: original.prompt)
+        if let newID, let snapshot { screenSnapshots[newID] = snapshot }
     }
 
     public func togglePin(_ id: UUID) {
@@ -138,6 +197,7 @@ public final class CopilotEngine {
         if let id = streamingID, let index = thread.firstIndex(where: { $0.id == id }) {
             if thread[index].response.isEmpty {
                 thread.remove(at: index)
+                screenSnapshots[id] = nil
             }
         }
         streamingID = nil
@@ -220,6 +280,10 @@ public final class CopilotEngine {
         finished = true
         answerTask?.cancel()
         notesTask?.cancel()
+        lookTask?.cancel()
+        isLooking = false
+        // Screen text never outlives the call.
+        screenSnapshots.removeAll()
         if let id = streamingID, let index = thread.firstIndex(where: { $0.id == id }), thread[index].response.isEmpty {
             thread.remove(at: index)
         }
@@ -235,19 +299,21 @@ public final class CopilotEngine {
         playbook.quickActions.first { $0.kind == .answer } ?? StandardActions.answer
     }
 
+    @discardableResult
     private func start(
         _ task: PromptComposer.LiveTask,
         kind: CopilotExchange.Kind,
         actionID: String?,
         title: String,
         prompt: String?
-    ) {
-        guard !finished else { return }
+    ) -> UUID? {
+        guard !finished else { return nil }
         cancel()
         let now = callTime()
         let model = ModelRole.live.modelID(defaults: defaults)
         let request = composer.liveRequest(
-            task, transcript: transcript(), now: now, recent: Array(thread.suffix(3)), model: model)
+            task, transcript: transcript(), now: now, recent: Array(thread.suffix(3)), model: model,
+            maxTokens: task.isLook ? 900 : 500)
         let exchange = CopilotExchange(
             kind: kind, actionID: actionID, title: title, prompt: prompt, callTime: now, model: model)
         thread.append(exchange)
@@ -276,6 +342,7 @@ public final class CopilotEngine {
             }
             if let self, self.streamingID == id { self.streamingID = nil }
         }
+        return id
     }
 
     private func append(_ piece: String, to id: UUID) {

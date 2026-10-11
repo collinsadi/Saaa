@@ -20,6 +20,8 @@ struct LivePanel: View {
     @State private var askText = ""
     @State private var selectedID: UUID?
     @State private var copiedID: UUID?
+    /// The answer whose sent screen text is showing.
+    @State private var sentShownID: UUID?
     @FocusState private var askFocused: Bool
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -211,6 +213,11 @@ struct LivePanel: View {
                     .buttonStyle(.plain)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(saaa.tideEmphasis)
+            } else if session.transcriptionNote == nil, copilot?.screenPermissionNeeded == true {
+                Button("Allow") { model.openScreenRecordingSettings() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(saaa.tideEmphasis)
             }
         }
         .foregroundStyle(saaa.emberText)
@@ -252,6 +259,9 @@ struct LivePanel: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if let pending = copilot?.pendingQuestion {
                 pendingChip(pending)
+            }
+            if copilot?.isLooking == true {
+                lookingRow
             }
             if let exchange = displayedExchange {
                 answerCard(exchange)
@@ -297,6 +307,19 @@ struct LivePanel: View {
         .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(saaa.tideFill.opacity(0.18)))
     }
 
+    private var lookingRow: some View {
+        HStack(spacing: Space.sm) {
+            ProgressView().controlSize(.small)
+            Text("Reading your screen on this Mac…")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, Space.md)
+        .frame(height: 32)
+        .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(.white.opacity(0.06)))
+    }
+
     private func answerCard(_ exchange: CopilotExchange) -> some View {
         let streaming = copilot?.streamingID == exchange.id
         let thread = copilot?.thread ?? []
@@ -327,19 +350,24 @@ struct LivePanel: View {
                 }
             }
             ScrollView {
-                if let failure = exchange.failure, exchange.response.isEmpty {
-                    Label(failure, systemImage: "exclamationmark.circle")
-                        .font(.system(size: 13))
-                        .foregroundStyle(saaa.dangerText)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    if let failure = exchange.failure, exchange.response.isEmpty {
+                        Label(failure, systemImage: "exclamationmark.circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(saaa.dangerText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if exchange.response.isEmpty, streaming {
+                        HStack(spacing: Space.sm) {
+                            ProgressView().controlSize(.small)
+                            Text("Thinking…").font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else if exchange.response.isEmpty, streaming {
-                    HStack(spacing: Space.sm) {
-                        ProgressView().controlSize(.small)
-                        Text("Thinking…").font(.system(size: 13)).foregroundStyle(.secondary)
+                    } else {
+                        StreamingText(exchange.response, isStreaming: streaming, font: .system(size: 14.5))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    StreamingText(exchange.response, isStreaming: streaming, font: .system(size: 14.5))
+                    if sentShownID == exchange.id, let snapshot = copilot?.screenSnapshots[exchange.id] {
+                        sentText(snapshot)
+                    }
                 }
             }
             .scrollIndicators(.never)
@@ -351,6 +379,14 @@ struct LivePanel: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .disabled(streaming || exchange.response.isEmpty)
+                }
+                if copilot?.screenSnapshots[exchange.id] != nil {
+                    Button(sentShownID == exchange.id ? "Hide what was sent" : "What was sent") {
+                        sentShownID = sentShownID == exchange.id ? nil : exchange.id
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if streaming {
@@ -373,6 +409,32 @@ struct LivePanel: View {
         .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(.black.opacity(0.28)))
     }
 
+    /// Exactly the screen text that went to Claude with this answer.
+    private func sentText(_ snapshot: ScreenSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionLabel("Sent to Claude")
+            Text(sentSummary(snapshot))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Text(snapshot.text)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Space.sm)
+                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(.white.opacity(0.05)))
+        }
+    }
+
+    private func sentSummary(_ snapshot: ScreenSnapshot) -> String {
+        var parts = [snapshot.sourceLabel, "\(snapshot.lineCount) lines", snapshot.scene.label.lowercased()]
+        if snapshot.redactions > 0 {
+            parts.append(snapshot.redactions == 1 ? "1 secret hidden" : "\(snapshot.redactions) secrets hidden")
+        }
+        if snapshot.truncated { parts.append("cut to fit") }
+        return parts.joined(separator: " · ")
+    }
+
     private func navButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 9, weight: .bold)).frame(width: 16, height: 16)
@@ -392,7 +454,7 @@ struct LivePanel: View {
                 .font(.system(size: 15, weight: .semibold))
             Text(copilot == nil
                  ? "The transcript still works. Connect Claude in Settings for live answers."
-                 : "Answers stream in about a second. When they ask you something, ⌥⌘A answers it.")
+                 : "Answers stream in about a second. ⌥⌘A answers what they asked; ⌥⌘L reads your screen.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -480,6 +542,17 @@ struct LivePanel: View {
             if !askFocused, askText.isEmpty {
                 KeyCap("⌥⌘K")
             }
+            Button(action: look) {
+                Image(systemName: "text.viewfinder")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(copilot?.isLooking == true ? saaa.tideEmphasis : Color.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(copilot?.canLook != true || copilot?.isLooking == true)
+            .help(askText.isEmpty ? "Look at your screen (⌥⌘L)" : "Ask about your screen")
+            .accessibilityLabel("Look at your screen")
             Button(action: submit) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 20))
@@ -495,6 +568,14 @@ struct LivePanel: View {
         .background(Capsule().fill(.white.opacity(0.08)))
         .padding(.horizontal, Space.md)
         .padding(.bottom, Space.md)
+    }
+
+    /// Look, with whatever is in the Ask field as the question.
+    private func look() {
+        let text = askText.trimmingCharacters(in: .whitespacesAndNewlines)
+        askText = ""
+        tab = .copilot
+        model.lookAtScreen(question: text.isEmpty ? nil : text)
     }
 
     private func submit() {

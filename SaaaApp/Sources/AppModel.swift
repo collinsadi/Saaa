@@ -242,6 +242,21 @@ final class AppModel {
         focusIslandAction()
     }
 
+    /// ⌥⌘L, the panel's Look button or the menu: read the frontmost window
+    /// on this Mac and answer with the call and the screen together. Text
+    /// typed in the Ask field becomes the question.
+    func lookAtScreen(question: String? = nil) {
+        guard session.isLive, let copilot = session.copilot, copilot.canLook else { return }
+        copilot.look(question: question)
+        panelExpanded = true
+    }
+
+    func openScreenRecordingSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func openHub(_ pane: HubPane? = nil) {
         if let pane { hubPane = pane }
         openHubAction(pane)

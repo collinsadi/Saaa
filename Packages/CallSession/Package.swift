@@ -13,6 +13,7 @@ let package = Package(
         .package(path: "../CalendarContext"),
         .package(path: "../Copilot"),
         .package(path: "../Persistence"),
+        .package(path: "../ScreenContext"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "CalendarContext", package: "CalendarContext"),
                 .product(name: "Copilot", package: "Copilot"),
                 .product(name: "Persistence", package: "Persistence"),
+                .product(name: "ScreenContext", package: "ScreenContext"),
             ]),
         .testTarget(name: "CallSessionTests", dependencies: ["CallSession"]),
     ]

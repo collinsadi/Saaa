@@ -40,6 +40,13 @@ public final class HotkeyMonitor {
             keyCode: UInt32(kVK_ANSI_K),
             modifiers: UInt32(optionKey | cmdKey),
             display: "⌥⌘K")
+
+        /// Look at the screen: ⌥⌘L. Registered only while a session is
+        /// live, so Finder and Safari keep it (Downloads) otherwise.
+        public static let optionCommandL = Binding(
+            keyCode: UInt32(kVK_ANSI_L),
+            modifiers: UInt32(optionKey | cmdKey),
+            display: "⌥⌘L")
     }
 
     // nonisolated(unsafe): written once during main-actor register(), read in

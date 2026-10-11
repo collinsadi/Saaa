@@ -29,6 +29,8 @@ enum SelfTests {
                     report = try await PipelineSelfTest.run()
                 case "capture":
                     report = try await captureCheck()
+                case "look":
+                    report = try await LookSelfTest.run()
                 default:
                     report = "unknown self-test \(name)"
                 }
