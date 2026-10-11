@@ -155,3 +155,35 @@ import Transcription
         #expect(!engine.isLooking)
     }
 }
+
+@Suite struct LookLensTests {
+
+    static func snapshot(_ scene: ScreenScene) -> ScreenSnapshot {
+        ScreenSnapshot(appName: "Zoom", windowTitle: "Shared screen", text: "def solve(nums): ...", scene: scene)
+    }
+
+    static func task(_ playbook: Playbook, _ scene: ScreenScene, question: String? = nil) -> String {
+        PromptComposer(playbook: playbook, context: SessionContext()).taskText(.look(snapshot(scene), question: question))
+    }
+
+    @Test func theInterviewerLensEvaluatesTheCandidate() {
+        #expect(Self.task(.recruiting, .code).contains("the candidate's code"))
+        #expect(Self.task(.recruiting, .code).contains("follow-up question"))
+        #expect(Self.task(.recruiting, .error).contains("Don't write the fix"))
+        #expect(Self.task(.recruiting, .other, question: "Is this right?").contains("never draft words for the candidate"))
+    }
+
+    @Test func thePairLensProposesConcreteFixes() {
+        #expect(Self.task(.pairProgramming, .code).contains("a concrete fix"))
+        #expect(Self.task(.pairProgramming, .error).contains("smallest fix"))
+    }
+
+    @Test func everyLensKeepsProblemsToTheApproach() {
+        for lens in ScreenLens.allCases {
+            var playbook = Playbook.general
+            playbook.screenLens = lens
+            #expect(Self.task(playbook, .problem).contains(PromptComposer.approachOnly), "lens \(lens)")
+            #expect(Self.task(playbook, .problem, question: "Write the code").contains(PromptComposer.approachOnly), "lens \(lens)")
+        }
+    }
+}

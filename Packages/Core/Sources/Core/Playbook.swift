@@ -26,6 +26,9 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
     public var liveNotes: Bool
     /// Calendar-title words that pick this playbook ("demo", "interview").
     public var titleKeywords: [String]
+    /// How Look treats code on screen; nil means the built-in default for
+    /// this id (playbooks saved before lenses existed decode as nil).
+    public var screenLens: ScreenLens?
     public var isBuiltIn: Bool
     public var updatedAt: Date
 
@@ -34,7 +37,8 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         instructions: String, quickActions: [QuickAction], vocabulary: [String] = [],
         knowledge: [KnowledgeItem] = [], summarySections: [String] = [],
         draftsFollowUpEmail: Bool = false, autoSuggest: Bool = false, liveNotes: Bool = true,
-        titleKeywords: [String] = [], isBuiltIn: Bool = false, updatedAt: Date = .now
+        titleKeywords: [String] = [], screenLens: ScreenLens? = nil, isBuiltIn: Bool = false,
+        updatedAt: Date = .now
     ) {
         self.id = id
         self.name = name
@@ -50,6 +54,7 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         self.autoSuggest = autoSuggest
         self.liveNotes = liveNotes
         self.titleKeywords = titleKeywords
+        self.screenLens = screenLens
         self.isBuiltIn = isBuiltIn
         self.updatedAt = updatedAt
     }
@@ -64,9 +69,51 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         return copy
     }
 
+    /// The lens Look uses: the stored choice, else this id's default.
+    public var lens: ScreenLens {
+        screenLens ?? Self.defaultLens(for: id)
+    }
+
+    public static func defaultLens(for id: String) -> ScreenLens {
+        switch id {
+        case "builtin.recruiting": .interviewer
+        case pairingID: .pairProgramming
+        default: .standard
+        }
+    }
+
     /// Total characters of knowledge (prompt budget display).
     public var knowledgeCharacters: Int {
         knowledge.reduce(0) { $0 + $1.text.count }
+    }
+}
+
+/// How Look frames help with code on screen. Every lens keeps AI_POLICY
+/// Rule 3: during a recorded session a coding problem gets the approach,
+/// never solution code.
+public enum ScreenLens: String, Sendable, Codable, Hashable, CaseIterable {
+    /// The user's own work: errors get a fix, code gets a review.
+    case standard
+    /// The user is the interviewer: evaluate the candidate's code and
+    /// suggest follow-ups; never draft words for the candidate.
+    case interviewer
+    /// Coding together: explain the shared code, find bugs, propose small fixes.
+    case pairProgramming
+
+    public var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .interviewer: "Interviewer"
+        case .pairProgramming: "Pair programming"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .standard: "Errors get a fix, code gets a review, a coding problem gets the approach."
+        case .interviewer: "Evaluates the candidate's code and suggests follow-ups. Never drafts words for the candidate."
+        case .pairProgramming: "Explains the shared code, finds bugs and proposes small fixes."
+        }
     }
 }
 

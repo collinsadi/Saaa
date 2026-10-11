@@ -29,7 +29,7 @@ It works with any call app: Zoom, Meet in a browser, Teams, FaceTime, Slack hudd
 
 ## Playbooks
 
-A playbook tells the copilot who you are on this kind of call: instructions in your own words, quick actions, words to listen for (they also tune transcription), reference material such as pricing sheets or rubrics, summary sections and whether to answer questions automatically. Eight come built in: General, Sales, Customer Success, Recruiting (interviewer side), Investor pitch, Standup, 1:1 and Lecture. Edit them or make your own.
+A playbook tells the copilot who you are on this kind of call: instructions in your own words, quick actions, words to listen for (they also tune transcription), reference material such as pricing sheets or rubrics, summary sections and whether to answer questions automatically. Nine come built in: General, Sales, Customer Success, Recruiting (interviewer side), Investor pitch, Standup, Pair programming, 1:1 and Lecture. Each also sets how Look treats code: Standard, Interviewer (evaluates the candidate's code, never drafts their words) or Pair programming (explains, finds bugs, proposes small fixes). In every lens, a coding problem gets the approach during a call, never solution code. Edit them or make your own.
 
 ## Privacy and data flow
 

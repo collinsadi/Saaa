@@ -119,7 +119,8 @@ public struct PromptComposer: Sendable {
             Task: \(Self.refinementInstruction(refinement))
             """
         case .look(let snapshot, let question):
-            return Self.screenBlock(snapshot) + "\n\n" + Self.lookTask(snapshot.scene, question: question)
+            return Self.screenBlock(snapshot) + "\n\n"
+                + Self.lookTask(snapshot.scene, question: question, lens: playbook.lens)
         case .refineLook(let snapshot, let previous, let refinement):
             var task = "Task: \(Self.refinementInstruction(refinement))"
             if snapshot.scene == .problem { task += " " + Self.approachOnly }
@@ -163,31 +164,67 @@ public struct PromptComposer: Sendable {
         return header + "\n<screen>\n" + snapshot.text + "\n</screen>"
     }
 
-    static func lookTask(_ scene: ScreenScene, question: String?) -> String {
+    static func lookTask(_ scene: ScreenScene, question: String?, lens: ScreenLens = .standard) -> String {
         if let question, !question.isEmpty {
             var task = "Task: Answer my question about my screen, briefly and directly. Use the call for context where it helps."
+            if lens == .interviewer { task += " I'm the interviewer: never draft words for the candidate to say." }
             if scene == .problem { task += " " + approachOnly }
             return task + "\nMy question: \(question)"
         }
-        switch scene {
-        case .error:
+        switch (lens, scene) {
+        case (.interviewer, .error):
+            return """
+            Task: My screen shows an error in the candidate's code. Say what went wrong in one \
+            sentence, then one question I can ask to see whether they can find it. Don't write the fix.
+            """
+        case (.interviewer, .problem):
+            return """
+            Task: My screen shows the problem the candidate is solving. Tell me what a strong answer \
+            covers: the key idea, the target time and space complexity and the edge cases to probe, \
+            in at most 5 short bullets. \(approachOnly)
+            """
+        case (.interviewer, .code):
+            return """
+            Task: My screen shows the candidate's code. Say whether it looks correct, which edge cases \
+            it misses and its time and space complexity, in at most 4 short bullets, then one \
+            follow-up question to ask.
+            """
+        case (.interviewer, .question):
+            return "Task: My screen shows a coding question. Tell me what a strong answer covers, in at most 4 short bullets."
+        case (.pairProgramming, .error):
+            return """
+            Task: The screen shows an error in the code we're working on. Say what's wrong in one \
+            sentence, then the smallest fix as a few lines of plain code and how to check it.
+            """
+        case (.pairProgramming, .problem):
+            return """
+            Task: The screen shows a problem we're solving together. Give the key idea, the steps and \
+            the pitfalls in at most 5 short bullets, then one question for us to settle. \(approachOnly)
+            """
+        case (.pairProgramming, .code):
+            return """
+            Task: The screen shows the code we're discussing. Name the most important bug or risk with \
+            its line and a concrete fix. If nothing looks wrong, explain what the code does in at most \
+            3 short bullets.
+            """
+        case (_, .error):
             return """
             Task: My screen shows an error. Say what's wrong in one sentence, then give the smallest fix as \
             a few lines of plain code. If the cause isn't on screen, say what to check first.
             """
-        case .problem:
+        case (_, .problem):
             return """
             Task: My screen shows a coding problem. Give the key idea, the steps, the pitfalls and the \
             target time and space complexity, in at most 5 short bullets. \(approachOnly)
             """
-        case .code:
+        case (_, .code):
             return """
             Task: My screen shows code. If something on it looks wrong, name the line and the fix in a \
             sentence or two. Otherwise say what matters about it for this call, in at most 3 short bullets.
             """
-        case .question:
+        case (_, .question):
             return "Task: My screen shows a coding question. Say how to approach it, in at most 5 short bullets."
-        case .other:
+        case (_, .other):
             return "Task: Tell me what on my screen matters for the call right now, in one or two sentences I can say or act on."
         }
     }

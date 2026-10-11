@@ -614,6 +614,32 @@ private struct PlaybookEditor: View {
                 "Keep running notes",
                 detail: "Decisions, numbers and to-dos, updated as the call goes.",
                 isOn: $draft.liveNotes)
+            Divider()
+            lensRow
+        }
+    }
+
+    /// How Look frames help with code on this kind of call.
+    private var lensRow: some View {
+        HStack(alignment: .center, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("When you Look at code")
+                    .font(.system(size: 13))
+                Text(draft.lens.detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Space.lg)
+            Picker("When you Look at code", selection: Binding(
+                get: { draft.lens },
+                set: { draft.screenLens = $0 })) {
+                ForEach(ScreenLens.allCases, id: \.self) { lens in
+                    Text(lens.title).tag(lens)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
         }
     }
 

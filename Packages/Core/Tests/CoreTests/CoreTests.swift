@@ -17,7 +17,7 @@ import Testing
 
     @Test func builtInsAreWellFormed() {
         let playbooks = Playbook.builtIns
-        #expect(playbooks.count == 8)
+        #expect(playbooks.count == 9)
         #expect(Set(playbooks.map(\.id)).count == playbooks.count)
         for playbook in playbooks {
             #expect(playbook.isBuiltIn)
@@ -52,6 +52,23 @@ import Testing
         #expect(PlaybookMatcher.match(title: "Daily standup", in: all)?.id == "builtin.standup")
         #expect(PlaybookMatcher.match(title: "1:1 Collins / Sam", in: all)?.id == "builtin.oneonone")
         #expect(PlaybookMatcher.match(title: "Lunch", in: all) == nil)
+        #expect(PlaybookMatcher.match(title: "Code review: auth service", in: all)?.id == Playbook.pairingID)
+    }
+
+    @Test func lensesDefaultByPlaybookAndSurviveOldData() throws {
+        #expect(Playbook.recruiting.lens == .interviewer)
+        #expect(Playbook.pairProgramming.lens == .pairProgramming)
+        #expect(Playbook.sales.lens == .standard)
+        // A Recruiting playbook edited before lenses existed keeps the interviewer lens.
+        var old = Playbook.recruiting
+        old.screenLens = nil
+        let data = try JSONEncoder().encode(old)
+        #expect(!String(decoding: data, as: UTF8.self).contains("screenLens"))
+        let decoded = try JSONDecoder().decode(Playbook.self, from: data)
+        #expect(decoded.screenLens == nil)
+        #expect(decoded.lens == .interviewer)
+        // Duplicates carry the lens to their new id.
+        #expect(Playbook.recruiting.duplicated().lens == .interviewer)
     }
 
     @Test func knowledgeIsCapped() {

@@ -40,10 +40,11 @@ public enum StandardActions {
 extension Playbook {
 
     public static let generalID = "builtin.general"
+    public static let pairingID = "builtin.pairing"
 
     /// The eight playbooks Saaa ships with. Users duplicate and edit them.
     public static let builtIns: [Playbook] = [
-        general, sales, customerSuccess, recruiting, investor, standup, oneOnOne, learning,
+        general, sales, customerSuccess, recruiting, investor, standup, pairProgramming, oneOnOne, learning,
     ]
 
     public static let general = Playbook(
@@ -154,6 +155,7 @@ extension Playbook {
         ],
         summarySections: ["Strengths", "Concerns", "Evidence by competency", "Open questions for the debrief"],
         titleKeywords: ["interview", "screen", "screening", "onsite", "hiring", "candidate", "panel"],
+        screenLens: .interviewer,
         isBuiltIn: true)
 
     public static let investor = Playbook(
@@ -216,6 +218,35 @@ extension Playbook {
         ],
         summarySections: ["Updates by person", "Blockers"],
         titleKeywords: ["standup", "stand-up", "sync", "daily", "scrum", "weekly", "planning", "retro"],
+        isBuiltIn: true)
+
+    public static let pairProgramming = Playbook(
+        id: pairingID, name: "Pair programming", symbol: "chevron.left.forwardslash.chevron.right", tint: .sky,
+        tagline: "Coding together on a call",
+        instructions: """
+        I'm working through code with a colleague on a call, often with a screen shared. Help us \
+        understand the code under discussion, spot bugs and edge cases, and choose the next step. \
+        Prefer small, safe changes and say how to check them. When we're stuck, suggest what to \
+        try or where to look next.
+        """,
+        quickActions: [
+            QuickAction(
+                id: "pairing.next", title: "Next step", symbol: "arrow.right.circle",
+                instruction: "Suggest the single most useful next step for what we're working on, in one or two sentences.",
+                kind: .say),
+            QuickAction(
+                id: "pairing.edges", title: "Edge cases", symbol: "exclamationmark.triangle",
+                instruction: "List up to three edge cases or risks in what we're discussing that nobody has covered yet, as short bullets.",
+                kind: .custom),
+            QuickAction(
+                id: "pairing.explain", title: "Explain it", symbol: "text.magnifyingglass",
+                instruction: "Explain the thing we're stuck on in plain words, in at most three short bullets.",
+                kind: .custom),
+            StandardActions.catchUp,
+        ],
+        summarySections: ["Changes discussed", "Bugs found", "Follow-ups"],
+        titleKeywords: ["pairing", "pair programming", "code review", "debugging", "mob", "walkthrough"],
+        screenLens: .pairProgramming,
         isBuiltIn: true)
 
     public static let oneOnOne = Playbook(
