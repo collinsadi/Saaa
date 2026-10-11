@@ -102,10 +102,10 @@ public enum EditorLook {
         return parts.joined(separator: "\n\n")
     }
 
+    /// A region's lines: its text is the lines joined with "\n" and no
+    /// terminator, so a trailing "\n" is a blank last line, not an ending.
     static func lines(of region: EditorContext.Region) -> [Substring] {
-        var text = region.text[...]
-        if text.hasSuffix("\n") { text = text.dropLast() }
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
+        region.text.split(separator: "\n", omittingEmptySubsequences: false)
     }
 
     static func span(_ region: EditorContext.Region) -> String {

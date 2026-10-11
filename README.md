@@ -49,7 +49,7 @@ Outside calls, Saaa helps while you code. Turn on Code Assist in Settings, then 
 
 **Editor extension.** In VS Code, Cursor and Windsurf, the Saaa extension ([`Editors/vscode`](Editors/vscode/README.md)) gives Look and Watch the exact lines on screen with line numbers, the file's errors and warnings, your selection and the last failed terminal command, instead of Saaa reading pixels. It answers only when Saaa asks. With it, Watch flags an editor error once it's still there a few seconds later, so errors that flash by while you type stay quiet.
 
-On a call, and on pages that look like a hiring assessment, an exam or a proctored test, coding problems get the approach, never solution code. Errors, code and nudges use the live model; problems use the Code Assist model (Sonnet by default). Their cost counts toward the month's total in Settings.
+On a call, and on pages that look like a hiring assessment, an exam or a proctored test, coding problems get the approach, never solution code; on those pages errors and code get a pointer, never a fix. Errors, code and nudges use the live model; problems use the Code Assist model (Sonnet by default). Their cost counts toward the month's total in Settings.
 
 ## Privacy and data flow
 

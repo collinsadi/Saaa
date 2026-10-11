@@ -197,11 +197,25 @@ public enum CodePromptComposer {
         }
     }
 
+    /// On an assessment page nothing gets code: problems stop at the
+    /// approach, and errors and code get a pointer instead of a fix.
+    static let assessmentRule = PromptComposer.approachOnly + " This looks like an assessment or a test, so no code at all."
+
     static func task(scene: ScreenScene, question: String?, rung: CodeRung?, cap: CodeCap?) -> String {
         if let question, !question.isEmpty {
             var task = "Task: Answer my question about my screen, briefly and directly."
-            if scene == .problem, cap != nil { task += " " + PromptComposer.approachOnly }
+            switch cap {
+            case .assessment: task += " " + assessmentRule
+            case .liveCall where scene == .problem: task += " " + PromptComposer.approachOnly
+            case .liveCall, nil: break
+            }
             return task + "\nMy question: \(question)"
+        }
+        if cap == .assessment, scene != .problem {
+            return """
+            Task: My screen looks like an assessment or a test. In one or two sentences, say what kind of \
+            mistake or gap to look for and where. \(assessmentRule)
+            """
         }
         switch scene {
         case .error:
@@ -232,7 +246,7 @@ public enum CodePromptComposer {
                 return """
                 Task: My screen shows a coding problem I'm working on. Give the key idea, the steps, the \
                 pitfalls and the target time and space complexity, in at most 6 short bullets. \
-                \(PromptComposer.approachOnly)
+                \(cap == .assessment ? assessmentRule : PromptComposer.approachOnly)
                 """
             case .pseudocode:
                 return """
@@ -472,6 +486,9 @@ public final class CodeAssistEngine {
         } catch {
             return
         }
+        // The world may have moved on while the screen was read: Watch
+        // turned off, a call started, or the user asked for something.
+        guard watchEnabled, !Task.isCancelled, !isCallLive(), !isReading, streamingID == nil else { return }
         guard snapshot.scene == .error else {
             pendingError = nil
             return

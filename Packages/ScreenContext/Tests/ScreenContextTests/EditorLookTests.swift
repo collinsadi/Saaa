@@ -11,7 +11,7 @@ import Testing
             .init(startLine: 1, text: "import { load } from \"./load\";\n\nexport function total(items: number[]): number {\n  let sum = 0;\n  for (const item of items) sum += item.value;\n  return sum;\n}"),
             .init(startLine: 9, text: "export const answer = total(load());"),
         ],
-        snippets: [.init(startLine: 98, text: "  const x = y\n  return x.z\n")],
+        snippets: [.init(startLine: 98, text: "  const x = y\n  return x.z")],
         selection: "item.value",
         problems: [
             .init(line: 5, severity: "error", message: "Property 'value' does not exist\non type 'number'.", source: "ts", code: "2339"),
@@ -54,6 +54,13 @@ import Testing
             98    const x = y
             99    return x.z
             """)
+    }
+
+    @Test func aRegionEndingOnABlankLineKeepsIt() throws {
+        let context = EditorContext(file: "a.swift", cursorLine: 4, visible: [.init(startLine: 1, text: "func f() {\n}\n\n")])
+        let text = try #require(EditorLook.compose(context, appName: "Code")).text
+        #expect(text.contains("On screen, lines 1 to 4, cursor on line 4:"))
+        #expect(text.hasSuffix("3  \n4  "))
     }
 
     @Test func masksSecretsInEditorText() throws {

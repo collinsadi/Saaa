@@ -34,6 +34,15 @@ public struct MemorySource: Sendable, Equatable {
 public struct MemoryChunk: Sendable, Equatable, Identifiable {
     public enum Kind: String, Sendable, Equatable {
         case summary, prep, transcript
+
+        /// Within one call: the summary, then the prep, then the transcript.
+        var order: Int {
+            switch self {
+            case .summary: 0
+            case .prep: 1
+            case .transcript: 2
+            }
+        }
     }
 
     public let id: Int
@@ -173,8 +182,9 @@ public struct MemoryIndex: Sendable {
         }
         return picked.sorted {
             if $0.startedAt != $1.startedAt { return $0.startedAt < $1.startedAt }
-            if $0.chunk.kind != $1.chunk.kind { return $0.chunk.kind == .summary }
-            return ($0.chunk.callTime ?? 0) < ($1.chunk.callTime ?? 0)
+            if $0.chunk.kind.order != $1.chunk.kind.order { return $0.chunk.kind.order < $1.chunk.kind.order }
+            if ($0.chunk.callTime ?? 0) != ($1.chunk.callTime ?? 0) { return ($0.chunk.callTime ?? 0) < ($1.chunk.callTime ?? 0) }
+            return $0.chunk.id < $1.chunk.id
         }
     }
 

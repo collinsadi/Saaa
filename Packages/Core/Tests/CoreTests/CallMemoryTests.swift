@@ -82,6 +82,20 @@ import Testing
         #expect(pieces[1].callTime == segments[MemoryIndex.chunkLines - MemoryIndex.overlapLines].start)
     }
 
+    @Test func excerptsOfOneCallReadSummaryPrepThenTranscriptInTimeOrder() {
+        let id = UUID()
+        let source = MemorySource(
+            id: id, title: "Acme pricing", startedAt: Self.now, summary: ["Pricing came up."], prep: ["Goal: pricing"],
+            segments: (0..<30).map { Self.line(.them(label: nil), Double($0) * 10, "pricing detail number \($0) about the plan") })
+        let excerpts = MemoryIndex(sources: [source]).search("pricing", perSession: 10, now: Self.now)
+        let kinds = excerpts.map(\.chunk.kind)
+        #expect(kinds.first == .summary)
+        #expect(kinds.contains(.prep))
+        let times = excerpts.filter { $0.chunk.kind == .transcript }.compactMap(\.chunk.callTime)
+        #expect(times == times.sorted())
+        #expect(kinds.firstIndex(of: .prep)! < kinds.firstIndex(of: .transcript)!)
+    }
+
     @Test func anEmptyLibraryFindsNothing() {
         let empty = MemoryIndex(sources: [])
         #expect(empty.isEmpty)
