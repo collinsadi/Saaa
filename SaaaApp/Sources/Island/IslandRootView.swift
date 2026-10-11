@@ -28,29 +28,44 @@ struct IslandRootView: View {
     let metrics: NotchMetrics
     let outsideClick: OutsideClickSignal
     let welcome: WelcomePulse
+    let hitArea: IslandHitArea
 
     @Environment(\.saaa) private var saaa
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(SaaaSettings.showIslandKey) private var showIsland = true
     @AppStorage(SaaaSettings.freezeMetersKey) private var freezeMeters = false
-    @State private var readyDismissed = false
     @State private var readyHovering = false
 
     private var session: SessionController { model.session }
+
+    /// The panel's own top-left space, the one ``IslandHitArea`` is measured in.
+    nonisolated static let space = "island"
 
     var body: some View {
         VStack(spacing: Space.sm) {
             if showIsland {
                 island
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .named(IslandRootView.space))
+                    } action: { rect in
+                        hitArea.island = tier == .hidden ? .zero : rect
+                    }
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.6, anchor: .top).combined(with: .opacity))
                 if session.isLive, model.panelExpanded {
                     LivePanel(model: model)
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named(IslandRootView.space))
+                        } action: { rect in
+                            hitArea.panel = rect
+                        }
+                        .onDisappear { hitArea.panel = .zero }
                         .transition(reduceMotion ? .opacity : .scale(scale: 0.94, anchor: .top).combined(with: .opacity))
                 }
             }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .coordinateSpace(.named(IslandRootView.space))
         .animation(Motion.expand(reduceMotion: reduceMotion), value: tier)
         .animation(Motion.expand(reduceMotion: reduceMotion), value: model.panelExpanded)
         .onChange(of: outsideClick.count) { _, _ in
@@ -61,8 +76,16 @@ struct IslandRootView: View {
             if !live { model.panelExpanded = false }
         }
         .onChange(of: session.readySummary?.id) { _, id in
-            readyDismissed = false
             if id != nil { scheduleReadyRetract() }
+        }
+        .onChange(of: tier) { _, newTier in
+            if newTier == .hidden { hitArea.island = .zero }
+        }
+        .onChange(of: showIsland) { _, shown in
+            if !shown {
+                hitArea.island = .zero
+                hitArea.panel = .zero
+            }
         }
     }
 
@@ -82,7 +105,7 @@ struct IslandRootView: View {
         }
         if welcome.active { return .welcome }
         if model.detector.suggestion != nil { return .suggestion }
-        if session.readySummary != nil, !readyDismissed { return .ready }
+        if session.readySummary != nil { return .ready }
         if !session.summarizing.isEmpty || !session.imports.isEmpty { return .background }
         return .hidden
     }
@@ -134,34 +157,16 @@ struct IslandRootView: View {
         compactBar {
             Lamp(.recording)
             Text("Rec").engravedLabelStyle().foregroundStyle(saaa.emberText)
-            Text(CallTime.stamp(session.callTime))
-                .font(SaaaFont.readoutValue)
-                .monospacedDigit()
-                .foregroundStyle(saaa.textPrimary)
-                .contentTransition(reduceMotion ? .identity : .numericText())
+            CallClock(session: session, font: SaaaFont.readoutValue)
         } trailing: {
-            HStack(spacing: 6) {
-                if session.copilot?.isStreaming == true {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(saaa.tideEmphasis)
-                        .symbolEffect(.pulse, isActive: !reduceMotion)
-                } else if session.copilot?.pendingQuestion != nil {
-                    Circle().fill(saaa.tideEmphasis).frame(width: 6, height: 6)
-                        .accessibilityLabel("They asked a question")
-                }
-                LevelBars(
-                    level: max(session.micMuted ? 0 : (session.levels?.mic.rms ?? 0), session.levels?.system.rms ?? 0),
-                    barCount: 10, frozen: freezeMeters)
-                    .frame(width: 34, height: 12)
-            }
+            LiveBarStatus(session: session, frozen: freezeMeters)
         }
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(Motion.expand(reduceMotion: reduceMotion)) { model.panelExpanded.toggle() }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Recording, \(CallTime.stamp(session.callTime)). Click to open the copilot.")
+        .accessibilityHint("Opens the copilot")
         .accessibilityAddTraits(.isButton)
     }
 
@@ -320,10 +325,10 @@ struct IslandRootView: View {
             var elapsed: TimeInterval = 0
             while elapsed < 12 {
                 try? await Task.sleep(for: .milliseconds(250))
-                guard session.readySummary != nil, !readyDismissed else { return }
+                guard session.readySummary != nil else { return }
                 if !readyHovering { elapsed += 0.25 }
             }
-            withAnimation(Motion.collapse(reduceMotion: reduceMotion)) { readyDismissed = true }
+            withAnimation(Motion.collapse(reduceMotion: reduceMotion)) { session.dismissReadySummary() }
         }
     }
 
@@ -367,5 +372,50 @@ struct IslandRootView: View {
             UnevenRoundedRectangle(bottomLeadingRadius: Size.Island.expandedRadius, bottomTrailingRadius: Size.Island.expandedRadius)
                 .fill(SaaaPalette.islandSurface))
         .overlay(IslandOpenBorder(cornerRadius: Size.Island.expandedRadius).stroke(saaa.borderHairline.opacity(0.6), lineWidth: 1))
+    }
+}
+
+/// The call timer. Its own view so the clock ticking doesn't redraw the island.
+struct CallClock: View {
+    let session: SessionController
+    var font: Font = SaaaFont.readoutValue
+
+    @Environment(\.saaa) private var saaa
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Text(CallTime.stamp(session.callTime))
+            .font(font)
+            .monospacedDigit()
+            .foregroundStyle(saaa.textPrimary)
+            .contentTransition(reduceMotion ? .identity : .numericText())
+    }
+}
+
+/// Copilot activity and the level meter on the live bar: the one view that
+/// redraws with every level reading.
+private struct LiveBarStatus: View {
+    let session: SessionController
+    let frozen: Bool
+
+    @Environment(\.saaa) private var saaa
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if session.copilot?.isStreaming == true {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(saaa.tideEmphasis)
+                    .symbolEffect(.pulse, isActive: !reduceMotion)
+            } else if session.copilot?.pendingQuestion != nil {
+                Circle().fill(saaa.tideEmphasis).frame(width: 6, height: 6)
+                    .accessibilityLabel("They asked a question")
+            }
+            LevelBars(
+                level: max(session.micMuted ? 0 : (session.levels?.mic.rms ?? 0), session.levels?.system.rms ?? 0),
+                barCount: 10, frozen: frozen)
+                .frame(width: 34, height: 12)
+        }
     }
 }

@@ -118,7 +118,7 @@ public final class CopilotEngine {
         pendingQuestion = nil
     }
 
-    /// Shorter / more detail / try again on an earlier answer.
+    /// More detail or another try on an earlier answer.
     public func refine(_ id: UUID, _ refinement: PromptComposer.Refinement) {
         guard let original = thread.first(where: { $0.id == id }), !original.response.isEmpty else { return }
         start(.refine(previous: original.response, refinement: refinement),

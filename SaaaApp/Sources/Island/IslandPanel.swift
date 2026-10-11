@@ -5,10 +5,11 @@ import DesignSystem
 import SwiftUI
 
 /// The island's window: a fixed, oversized, borderless, non-activating panel
-/// at statusBar+3. Verified contracts: clicks pass through zero-alpha
-/// regions per pixel; ANY alpha at menu-bar height swallows menu-bar clicks,
-/// so nothing but the black bar itself ever draws up there (no shadows, no
-/// glow); the glass panel starts below the bar.
+/// at statusBar+3. It takes the mouse only while the pointer is over
+/// something it draws (``IslandHitArea``); everywhere else, including the
+/// empty rest of its frame, clicks and hovers go to the apps beneath.
+/// Nothing but the black bar draws at menu-bar height; the glass panel
+/// starts below the bar.
 final class IslandPanel: NSPanel {
     /// Key focus only while the live panel (and its Ask field) is open. The
     /// call app stays the active app: typing comes here Spotlight-style.
@@ -28,10 +29,31 @@ final class IslandPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         becomesKeyOnlyIfNeeded = true
+        acceptsMouseMovedEvents = true
+        ignoresMouseEvents = true
     }
 
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
+}
+
+/// Where the island draws something you can click, in the panel's
+/// top-left coordinates, reported by the views themselves.
+@MainActor
+final class IslandHitArea {
+    var island: CGRect = .zero {
+        didSet { if island != oldValue { onChange() } }
+    }
+    var panel: CGRect = .zero {
+        didSet { if panel != oldValue { onChange() } }
+    }
+    var onChange: () -> Void = {}
+
+    func contains(_ point: CGPoint) -> Bool {
+        [island, panel].contains { rect in
+            rect.width > 1 && rect.height > 1 && rect.insetBy(dx: -2, dy: -2).contains(point)
+        }
+    }
 }
 
 /// Bumped on any click outside the panel (global monitor = other apps).
@@ -61,9 +83,16 @@ final class IslandController {
     private var screenObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private var clickMonitor: Any?
+    private var moveMonitors: [Any] = []
+    /// Polls the pointer while something shows: moves over the menu bar or
+    /// Saaa's own windows don't reach either event monitor.
+    private var pointerTimer: Timer?
     private let model: AppModel
+    /// Something is showing (a session, a result, a suggestion).
+    private var interactive = false
     let outsideClick = OutsideClickSignal()
     let welcome = WelcomePulse()
+    let hitArea = IslandHitArea()
 
     init(model: AppModel) {
         self.model = model
@@ -81,6 +110,20 @@ final class IslandController {
         }
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [outsideClick] _ in
             outsideClick.bump()
+        }
+        // The pointer decides whether the panel takes the mouse: other apps'
+        // moves arrive on the global monitor, ours on the local one.
+        hitArea.onChange = { [weak self] in self?.updateMousePassThrough() }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] _ in
+            self?.updateMousePassThrough()
+        }) {
+            moveMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
+            self?.updateMousePassThrough()
+            return event
+        }) {
+            moveMonitors.append(local)
         }
     }
 
@@ -105,7 +148,8 @@ final class IslandController {
             width: size.width, height: size.height)
         let panel = self.panel ?? IslandPanel(frame: frame)
         panel.setFrame(frame, display: true)
-        let root = IslandRootView(model: model, metrics: metrics, outsideClick: outsideClick, welcome: welcome)
+        let root = IslandRootView(
+            model: model, metrics: metrics, outsideClick: outsideClick, welcome: welcome, hitArea: hitArea)
             .saaaThemed(fixed: .dark)
             .environment(\.colorScheme, .dark)
         let hosting = NSHostingView(rootView: AnyView(root))
@@ -134,8 +178,8 @@ final class IslandController {
         }
     }
 
-    /// A dormant island renders nothing clickable: the whole panel ignores
-    /// the mouse so the windows beneath keep their cursors and clicks.
+    /// A dormant island takes no mouse events at all; a showing one takes
+    /// them only under the pointer's current position on its content.
     private func applyInteractivity() {
         let shown = UserDefaults.standard.object(forKey: SaaaSettings.showIslandKey) as? Bool ?? true
         let session = model.session
@@ -145,13 +189,42 @@ final class IslandController {
             || !session.imports.isEmpty
             || model.detector.suggestion != nil
             || welcome.active
-        panel?.ignoresMouseEvents = !(shown && busy)
+        interactive = shown && busy
+        if interactive, pointerTimer == nil {
+            let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateMousePassThrough() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            pointerTimer = timer
+        } else if !interactive {
+            pointerTimer?.invalidate()
+            pointerTimer = nil
+        }
+        updateMousePassThrough()
         let allowsKey = shown && session.isLive && model.panelExpanded
         if panel?.allowsKey != allowsKey {
             panel?.allowsKey = allowsKey
             if !allowsKey, panel?.isKeyWindow == true {
                 panel?.makeFirstResponder(nil)
             }
+        }
+    }
+}
+
+extension IslandController {
+    /// Explicitly setting `ignoresMouseEvents = false` makes the whole frame
+    /// catch clicks, transparent or not, so the panel only accepts the mouse
+    /// while the pointer is over the bar, a tier or the live panel.
+    fileprivate func updateMousePassThrough() {
+        guard let panel else { return }
+        var accepts = false
+        if interactive {
+            let mouse = NSEvent.mouseLocation
+            let frame = panel.frame
+            accepts = hitArea.contains(CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y))
+        }
+        if panel.ignoresMouseEvents == accepts {
+            panel.ignoresMouseEvents = !accepts
         }
     }
 }

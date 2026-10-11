@@ -118,10 +118,10 @@ import Transcription
         engine.run(StandardActions.answer)
         await waitUntil { !engine.isStreaming }
         let first = try #require(engine.latest)
-        engine.refine(first.id, .shorter)
+        engine.refine(first.id, .moreDetail)
         await waitUntil { !engine.isStreaming }
         #expect(engine.thread.count == 2)
-        #expect(engine.latest?.title == "Answer · shorter")
+        #expect(engine.latest?.title == "Answer · more detail")
         let tail = text(of: try #require(claude.requests.last?.messages.first?.content.last))
         #expect(tail.contains("Long answer here."))
     }

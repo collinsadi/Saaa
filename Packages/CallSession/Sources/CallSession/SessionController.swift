@@ -312,7 +312,9 @@ public final class SessionController {
         switch event {
         case .levels(let reading):
             levels = reading
-            callTime = reading.time
+            // Whole seconds: everything showing the clock redraws once a second, not ten times.
+            let seconds = reading.time.rounded(.down)
+            if seconds != callTime { callTime = seconds }
             if !onSpeakers, (transcriber?.echoFilteredSeconds ?? 0) > 10 {
                 onSpeakers = true
             }

@@ -6,32 +6,31 @@ public enum StandardActions {
         id: "answer", title: "Answer", symbol: "text.bubble",
         instruction: """
         Answer the most recent question the other side asked, or the last thing they said that \
-        needs a response. Lead with one or two sentences I can say out loud, then up to three \
-        short supporting points.
+        needs a response: one sentence I can say out loud, two at most. Nothing else.
         """,
         kind: .answer)
 
     public static let whatToSay = QuickAction(
         id: "say", title: "What to say", symbol: "quote.bubble",
         instruction: """
-        Suggest exactly what I should say next, in my voice, given where the conversation is \
-        right now. One or two sentences I can say out loud, then one short line on why.
+        Tell me exactly what to say next, in my voice, given where the conversation is right \
+        now: one sentence I can say out loud, two at most. Nothing else.
         """,
         kind: .say)
 
     public static let whatToAsk = QuickAction(
         id: "ask", title: "What to ask", symbol: "questionmark.bubble",
         instruction: """
-        Suggest the two best questions I could ask next to move the conversation forward. \
-        One line each, most important first.
+        Give me the single best question to ask next to move the conversation forward. One \
+        line, nothing else.
         """,
         kind: .ask)
 
     public static let catchUp = QuickAction(
         id: "recap", title: "Catch me up", symbol: "arrow.counterclockwise",
         instruction: """
-        Catch me up on the conversation so far in at most five short bullets: what was \
-        discussed, decided, and still open. Weight the last few minutes most.
+        Catch me up in at most three short bullets: what was discussed, decided, and still \
+        open. Weight the last few minutes most.
         """,
         kind: .recap)
 
@@ -73,17 +72,16 @@ extension Playbook {
             QuickAction(
                 id: "sales.discovery", title: "Discovery question", symbol: "magnifyingglass",
                 instruction: """
-                Suggest the single best discovery question to ask next, given what we haven't \
-                learned yet (pain, impact, decision process, budget, timeline). Add a one-line \
-                follow-up in case the answer is vague.
+                Give me the single best discovery question to ask next, given what we haven't \
+                learned yet (pain, impact, decision process, budget, timeline). One line.
                 """,
                 kind: .ask),
             QuickAction(
                 id: "sales.objection", title: "Handle objection", symbol: "shield.lefthalf.filled",
                 instruction: """
-                Name the objection or concern they just raised, then give me a response: \
-                acknowledge it, ask one clarifying question, and answer with evidence from my \
-                notes or knowledge. Keep it short enough to say.
+                Give me a response to the objection they just raised that I can say out loud: \
+                acknowledge it and answer with evidence from my notes or knowledge, in two \
+                sentences at most.
                 """,
                 kind: .custom),
             StandardActions.whatToSay,
@@ -135,7 +133,7 @@ extension Playbook {
                 id: "recruiting.next", title: "Next question", symbol: "arrow.right.circle",
                 instruction: """
                 Suggest the next interview question that best covers a competency we haven't \
-                probed yet. One question, plus one follow-up probe.
+                probed yet. One question, nothing else.
                 """,
                 kind: .ask),
             QuickAction(
@@ -172,15 +170,16 @@ extension Playbook {
             QuickAction(
                 id: "investor.numbers", title: "Back it with numbers", symbol: "number",
                 instruction: """
-                Answer their latest question using concrete numbers from my notes and knowledge. \
-                If the numbers aren't there, tell me what to say instead without inventing any.
+                Answer their latest question in one or two sentences I can say, using concrete \
+                numbers from my notes and knowledge. If the numbers aren't there, tell me what to \
+                say instead without inventing any.
                 """,
                 kind: .answer),
             QuickAction(
                 id: "investor.ask", title: "Ask them", symbol: "questionmark.bubble",
                 instruction: """
-                Suggest two sharp questions to ask this investor (their thesis, process, \
-                portfolio fit, decision timeline), based on the conversation.
+                Give me the sharpest question to ask this investor next (their thesis, process, \
+                portfolio fit, decision timeline). One line.
                 """,
                 kind: .ask),
             StandardActions.catchUp,
@@ -253,8 +252,8 @@ extension Playbook {
             QuickAction(
                 id: "learning.explain", title: "Explain that", symbol: "lightbulb",
                 instruction: """
-                Explain the concept being discussed right now simply, in three sentences or \
-                fewer, with one concrete example.
+                Explain the concept being discussed right now simply, in two sentences with one \
+                concrete example.
                 """,
                 kind: .answer),
             QuickAction(

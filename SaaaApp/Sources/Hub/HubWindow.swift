@@ -58,13 +58,15 @@ struct HubView: View {
     }
 
     private var sidebar: some View {
-        List(selection: Binding(get: { model.hubPane }, set: { model.hubPane = $0 ?? .home })) {
-            Section {
-                ForEach(HubPane.allCases) { pane in
-                    Label(pane.title, systemImage: pane.symbol)
-                        .tag(pane)
-                        .badge(badge(for: pane))
-                }
+        // Rows are tagged with the pane itself (not its id) and the tag is
+        // the outermost modifier, so it matches the selection's type exactly.
+        List(selection: Binding<HubPane?>(
+            get: { model.hubPane },
+            set: { if let pane = $0 { model.hubPane = pane } })) {
+            ForEach(HubPane.allCases, id: \.self) { pane in
+                Label(pane.title, systemImage: pane.symbol)
+                    .badge(badge(for: pane))
+                    .tag(Optional(pane))
             }
         }
         .listStyle(.sidebar)

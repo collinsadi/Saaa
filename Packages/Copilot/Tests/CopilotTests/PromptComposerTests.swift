@@ -93,11 +93,11 @@ import Transcription
         let normal = composer.liveRequest(.ask("x"), transcript: makeTranscript(lines: 3), now: 30, recent: recent, model: "m")
         #expect(text(of: try #require(normal.messages.first?.content.last)).contains("Your recent suggestions"))
         let refine = composer.liveRequest(
-            .refine(previous: "We support Okta SSO.", refinement: .shorter),
+            .refine(previous: "We support Okta SSO.", refinement: .moreDetail),
             transcript: makeTranscript(lines: 3), now: 30, recent: recent, model: "m")
         let tail = text(of: try #require(refine.messages.first?.content.last))
         #expect(!tail.contains("Your recent suggestions"))
-        #expect(tail.contains("Make it much shorter"))
+        #expect(tail.contains("Give more detail"))
     }
 
     @Test func notesRequestCarriesCurrentNotesAndFormat() throws {

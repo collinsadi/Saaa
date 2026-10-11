@@ -23,14 +23,13 @@ public struct PromptComposer: Sendable {
         case refine(previous: String, refinement: Refinement)
     }
 
+    /// Answers are short by default; these rework one on request.
     public enum Refinement: String, Sendable, Equatable, CaseIterable {
-        case shorter
         case moreDetail
         case retry
 
         public var title: String {
             switch self {
-            case .shorter: "Shorter"
             case .moreDetail: "More detail"
             case .retry: "Try again"
             }
@@ -101,9 +100,8 @@ public struct PromptComposer: Sendable {
             """
         case .refine(let previous, let refinement):
             let how = switch refinement {
-            case .shorter: "Make it much shorter: one sentence I can say, nothing else."
-            case .moreDetail: "Give more detail and the reasoning behind it, still easy to read at a glance (under 150 words)."
-            case .retry: "Give a different, better answer to the same need."
+            case .moreDetail: "Give more detail and the reasoning behind it, still easy to read at a glance (under 120 words)."
+            case .retry: "Give a different, better answer to the same need, just as short."
             }
             return """
             Your previous suggestion was:
@@ -344,8 +342,9 @@ public struct PromptComposer: Sendable {
     How to respond:
     - Be immediately usable. Start with the line the user can say or act on. No preamble, no \
     restating the question, no sign-off.
-    - Be brief: under 90 words unless the task asks for more. Plain text; "- " bullets only for \
-    lists. No headings, no bold, no emoji.
+    - Be short. By default give one sentence the user can say or act on, two at most and under \
+    40 words. Go longer only when the task asks for a list or for more detail. Plain text; "- " \
+    bullets only for lists. No headings, no bold, no emoji.
     - When writing something to say out loud, write it in the user's voice, natural and spoken.
     - Ground claims in the transcript, the session details and the reference material. If a fact \
     isn't there and you aren't sure, say so in a few words instead of guessing. Never invent \

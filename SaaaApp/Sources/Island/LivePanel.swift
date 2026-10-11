@@ -54,7 +54,7 @@ struct LivePanel: View {
             Group {
                 switch tab {
                 case .copilot: copilotTab
-                case .transcript: transcriptTab
+                case .transcript: LiveTranscriptList(session: session)
                 case .notes: notesTab
                 }
             }
@@ -83,10 +83,7 @@ struct LivePanel: View {
     private var header: some View {
         HStack(spacing: Space.sm) {
             Lamp(.recording)
-            Text(CallTime.stamp(session.callTime))
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .monospacedDigit()
-                .contentTransition(reduceMotion ? .identity : .numericText())
+            CallClock(session: session, font: .system(size: 13, weight: .semibold, design: .monospaced))
             playbookMenu
             if let app = session.appName {
                 Text("· \(app)")
@@ -95,7 +92,7 @@ struct LivePanel: View {
                     .lineLimit(1)
             }
             Spacer(minLength: Space.sm)
-            TalkRatioBar(me: session.transcript.talkTime.me, them: session.transcript.talkTime.them)
+            LiveTalkRatio(session: session)
             iconButton("square.and.pencil", help: "Session context") { model.openPrep() }
             iconButton(screenPrivacy ? "eye.slash.fill" : "eye", help: screenPrivacy ? "Hidden from screen sharing. Click to show." : "Hide Saaa from screen sharing", active: screenPrivacy) {
                 screenPrivacy.toggle()
@@ -405,45 +402,6 @@ struct LivePanel: View {
         .padding(.horizontal, Space.sm)
     }
 
-    // MARK: - Transcript tab
-
-    private var transcriptTab: some View {
-        let lines = Array(session.transcript.lines.suffix(250))
-        return ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 7) {
-                    if lines.isEmpty {
-                        Text("Words appear here as people talk.")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, Space.lg)
-                    }
-                    ForEach(lines) { line in
-                        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-                            Text(line.lane.label)
-                                .engravedLabelStyle()
-                                .foregroundStyle(line.lane == .me ? saaa.tideEmphasis : Color.secondary)
-                                .frame(width: 38, alignment: .leading)
-                            Text(line.text)
-                                .font(.system(size: 13))
-                                .foregroundStyle(line.isFinal ? Color.primary : Color.secondary)
-                                .italic(!line.isFinal)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .id(line.id)
-                    }
-                    Color.clear.frame(height: 1).id("transcript-bottom")
-                }
-                .padding(.horizontal, Space.lg)
-            }
-            .onChange(of: session.transcript.revision) { _, _ in
-                proxy.scrollTo("transcript-bottom", anchor: .bottom)
-            }
-            .onAppear { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
-        }
-    }
-
     // MARK: - Notes tab
 
     private var notesTab: some View {
@@ -547,6 +505,61 @@ struct LivePanel: View {
             model.answerNow()
         } else {
             copilot?.ask(text)
+        }
+    }
+}
+
+/// Me vs Them talk time. Its own view: it changes with every committed line.
+private struct LiveTalkRatio: View {
+    let session: SessionController
+
+    var body: some View {
+        let talk = session.transcript.talkTime
+        TalkRatioBar(me: talk.me, them: talk.them)
+    }
+}
+
+/// The live transcript, newest at the bottom. Its own view so partial words
+/// arriving several times a second redraw only this list.
+private struct LiveTranscriptList: View {
+    let session: SessionController
+
+    @Environment(\.saaa) private var saaa
+
+    var body: some View {
+        let lines = Array(session.transcript.lines.suffix(250))
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    if lines.isEmpty {
+                        Text("Words appear here as people talk.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, Space.lg)
+                    }
+                    ForEach(lines) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                            Text(line.lane.label)
+                                .engravedLabelStyle()
+                                .foregroundStyle(line.lane == .me ? saaa.tideEmphasis : Color.secondary)
+                                .frame(width: 38, alignment: .leading)
+                            Text(line.text)
+                                .font(.system(size: 13))
+                                .foregroundStyle(line.isFinal ? Color.primary : Color.secondary)
+                                .italic(!line.isFinal)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .id(line.id)
+                    }
+                    Color.clear.frame(height: 1).id("transcript-bottom")
+                }
+                .padding(.horizontal, Space.lg)
+            }
+            .onChange(of: session.transcript.revision) { _, _ in
+                proxy.scrollTo("transcript-bottom", anchor: .bottom)
+            }
+            .onAppear { proxy.scrollTo("transcript-bottom", anchor: .bottom) }
         }
     }
 }
