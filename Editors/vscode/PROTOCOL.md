@@ -33,7 +33,7 @@ The extension connects and introduces itself. After that it speaks only when spo
 }}
 ```
 
-Lines are numbered from 1. `visible` holds the lines on screen, split where code is folded, at most 200 lines nearest the cursor. `snippets` holds a few lines around up to three errors that are scrolled out of view. `problems` lists errors first, then warnings, nearest the cursor first, at most 20. `terminal` is the last failed command in the last 15 minutes, or `null`.
+Lines are numbered from 1. A region's `text` is its lines joined with `\n`, with no newline after the last one, so a region that ends on a blank line ends in `\n`. `visible` holds the lines on screen, split where code is folded, at most 200 lines nearest the cursor. `snippets` holds a few lines around up to three errors that are scrolled out of view. `problems` lists errors first, then warnings, nearest the cursor first, at most 20. `terminal` is the last failed command in the last 15 minutes, or `null`.
 
 [`test/fixtures/context.json`](test/fixtures/context.json) is a complete example. Both the extension's tests and Saaa's Swift tests (`EditorBridgeTests`) check it, so the two sides can't drift apart.
 

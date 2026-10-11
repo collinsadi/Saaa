@@ -21,3 +21,18 @@ test('tail keeps the last lines and starts at a line break', () => {
   assert.equal(tail(text, 10, 14), 'line 8\nline 9');
   assert.equal(tail(text, 10, 12), 'line 9');
 });
+
+test('tail stays fast on long runs of blank lines', () => {
+  const started = Date.now();
+  const text = 'error: build failed' + '\n'.repeat(40_000) + 'done';
+  assert.equal(tail(text, 3, 1_000).endsWith('done'), true);
+  assert.equal(tail('x' + ' \n'.repeat(40_000), 3, 1_000), 'x');
+  assert.ok(Date.now() - started < 500);
+});
+
+test('tail never starts with half an emoji', () => {
+  const text = '😀'.repeat(10);
+  const kept = tail(text, 1, 5);
+  assert.ok(!/^[\udc00-\udfff]/.test(kept));
+  assert.doesNotThrow(() => encodeURIComponent(kept));
+});

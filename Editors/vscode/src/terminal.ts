@@ -31,6 +31,8 @@ interface Failure extends TerminalRun {
 export class TerminalTracker {
   private readonly running = new Map<object, Running>();
   private failure: Failure | null = null;
+  /** Bumped by clear(), so a command still settling when sharing turns off is dropped. */
+  private generation = 0;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -53,6 +55,7 @@ export class TerminalTracker {
     this.running.set(execution, entry);
   }
 
+  /** Only commands this tracker saw start are remembered: one that began while sharing was off stays unknown. */
   async ended(execution: object, terminal: unknown, command: string, exitCode: number | undefined): Promise<void> {
     const entry = this.running.get(execution);
     this.running.delete(execution);
@@ -60,9 +63,11 @@ export class TerminalTracker {
       if (this.failure?.terminal === terminal) this.failure = null;
       return;
     }
-    if (exitCode === undefined || INTERRUPTED.has(exitCode) || command.trim().length === 0) return;
-    if (entry) await Promise.race([entry.done, delay(TERMINAL_LIMITS.settleMs)]);
-    const output = entry ? tail(stripAnsi(entry.chunks.join('')), TERMINAL_LIMITS.lines, TERMINAL_LIMITS.chars) : '';
+    if (!entry || exitCode === undefined || INTERRUPTED.has(exitCode) || command.trim().length === 0) return;
+    const generation = this.generation;
+    await Promise.race([entry.done, delay(TERMINAL_LIMITS.settleMs)]);
+    if (generation !== this.generation) return;
+    const output = tail(stripAnsi(entry.chunks.join('')), TERMINAL_LIMITS.lines, TERMINAL_LIMITS.chars);
     this.failure = { command: command.trim(), exitCode, output, terminal, at: this.now() };
   }
 
@@ -80,6 +85,7 @@ export class TerminalTracker {
   }
 
   clear(): void {
+    this.generation += 1;
     this.running.clear();
     this.failure = null;
   }

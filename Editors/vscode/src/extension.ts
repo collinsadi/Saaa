@@ -67,7 +67,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.window.onDidEndTerminalShellExecution((event) => {
-      void tracker.ended(event.execution, event.terminal, event.execution.commandLine.value, event.exitCode);
+      if (setting('enabled') && setting('shareTerminal')) {
+        void tracker.ended(event.execution, event.terminal, event.execution.commandLine.value, event.exitCode);
+      }
     }),
     vscode.window.onDidCloseTerminal((terminal) => tracker.closed(terminal)),
     vscode.workspace.onDidChangeConfiguration((event) => {

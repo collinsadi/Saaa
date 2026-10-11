@@ -1,3 +1,5 @@
+import { safeSlice } from './text';
+
 // Escape sequences a terminal understands: CSI (colors, cursor moves), OSC
 // (titles, hyperlinks, shell integration marks), DCS-style strings and the
 // short two-byte forms.
@@ -22,10 +24,10 @@ export function stripAnsi(raw: string): string {
 
 /** The last `maxLines` lines and at most `maxChars` characters, starting at a line break, trailing blank lines dropped. */
 export function tail(text: string, maxLines: number, maxChars: number): string {
-  const lines = text.replace(/\s+$/, '').split('\n');
+  const lines = text.trimEnd().split('\n');
   let kept = lines.slice(-maxLines).join('\n');
   if (kept.length > maxChars) {
-    kept = kept.slice(kept.length - maxChars);
+    kept = safeSlice(kept, kept.length - maxChars, kept.length);
     const firstBreak = kept.indexOf('\n');
     if (firstBreak >= 0) kept = kept.slice(firstBreak + 1);
   }

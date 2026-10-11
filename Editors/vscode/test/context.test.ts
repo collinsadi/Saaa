@@ -107,3 +107,12 @@ test('long lines, selections and messages are clipped', () => {
 test('a blank selection is no selection', () => {
   assert.equal(buildContext(view(['a'], { selection: '  \n ' }), null)!.selection, null);
 });
+
+test('clipping never splits an emoji, so the reply stays valid Unicode', () => {
+  const line = 'x'.repeat(LIMITS.lineChars - 1) + '😀 and more';
+  const context = buildContext(view([line]), null)!;
+  const text = context.visible[0].text;
+  assert.ok(!/[\ud800-\udbff]…$/.test(text));
+  assert.doesNotThrow(() => encodeURIComponent(text));
+  assert.ok(!JSON.stringify(context).includes('\\ud83d'));
+});

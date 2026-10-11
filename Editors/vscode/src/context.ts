@@ -1,4 +1,5 @@
 import type { EditorContext, Problem, Region, TerminalRun } from './protocol';
+import { safeSlice } from './text';
 
 export const LIMITS = {
   /** Lines of code sent from the screen, nearest the cursor first. */
@@ -116,5 +117,6 @@ function rank(severity: 'error' | 'warning'): number {
 }
 
 export function clip(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max) + '…' : text;
+  if (text.length <= max) return text;
+  return safeSlice(text, 0, max) + '…';
 }

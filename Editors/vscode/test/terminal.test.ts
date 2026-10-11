@@ -73,3 +73,26 @@ test('keeps only the end of a long output', async () => {
   assert.equal(failure.output.split('\n').length, TERMINAL_LIMITS.lines);
   assert.ok(failure.output.endsWith('line 499'));
 });
+
+test('a command that started while sharing was off is never remembered', async () => {
+  const tracker = new TerminalTracker();
+  await tracker.ended({}, 't', 'mysql -pS3cret prod', 1);
+  assert.equal(tracker.lastFailure(), null);
+});
+
+test('turning sharing off while a command settles drops it', async () => {
+  const tracker = new TerminalTracker();
+  const execution = {};
+  let finish: () => void = () => {};
+  const held = new Promise<void>((resolve) => { finish = resolve; });
+  async function* slow(): AsyncIterable<string> {
+    yield 'boom\n';
+    await held;
+  }
+  tracker.started(execution, 't', slow());
+  const ending = tracker.ended(execution, 't', 'make', 2);
+  tracker.clear();
+  finish();
+  await ending;
+  assert.equal(tracker.lastFailure(), null);
+});
