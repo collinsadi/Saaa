@@ -366,7 +366,7 @@ struct LivePanel: View {
                         StreamingText(exchange.response, isStreaming: streaming, font: .system(size: 14.5))
                     }
                     if sentShownID == exchange.id, let snapshot = copilot?.screenSnapshots[exchange.id] {
-                        sentText(snapshot)
+                        SentScreenText(snapshot: snapshot)
                     }
                 }
             }
@@ -407,32 +407,6 @@ struct LivePanel: View {
         .padding(Space.md)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(.black.opacity(0.28)))
-    }
-
-    /// Exactly the screen text that went to Claude with this answer.
-    private func sentText(_ snapshot: ScreenSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("Sent to Claude")
-            Text(sentSummary(snapshot))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Text(snapshot.text)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Space.sm)
-                .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(.white.opacity(0.05)))
-        }
-    }
-
-    private func sentSummary(_ snapshot: ScreenSnapshot) -> String {
-        var parts = [snapshot.sourceLabel, "\(snapshot.lineCount) lines", snapshot.scene.label.lowercased()]
-        if snapshot.redactions > 0 {
-            parts.append(snapshot.redactions == 1 ? "1 secret hidden" : "\(snapshot.redactions) secrets hidden")
-        }
-        if snapshot.truncated { parts.append("cut to fit") }
-        return parts.joined(separator: " · ")
     }
 
     private func navButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {

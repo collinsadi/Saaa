@@ -1,6 +1,7 @@
 import AnthropicKit
 import AppKit
 import CallSession
+import Copilot
 import Core
 import CryptoKit
 import Foundation
@@ -47,6 +48,8 @@ final class AppModel {
     let library: SessionLibrary
     let session: SessionController
     let detector: MeetingDetector
+    /// Code help outside calls: Look, Watch and the problem ladder.
+    let codeAssist: CodeAssistEngine
     /// False when the content key could not be read: sessions this run
     /// can't be reopened later, and the UI says so.
     let encryptionHealthy: Bool
@@ -66,6 +69,10 @@ final class AppModel {
     var askFocusToken = 0
     /// The live consent banner was handled for this session.
     var consentHandled = false
+    /// ⌥⌘L and Code Assist outside calls.
+    var codeAssistEnabled = UserDefaults.standard.bool(forKey: CodeAssistSettings.enabledKey) {
+        didSet { UserDefaults.standard.set(codeAssistEnabled, forKey: CodeAssistSettings.enabledKey) }
+    }
 
     @ObservationIgnored private let playbookStore: PlaybookStore
     @ObservationIgnored private let encryption: EncryptionService
@@ -75,6 +82,7 @@ final class AppModel {
     @ObservationIgnored var openPrepAction: (SessionContext, Playbook?) -> Void = { _, _ in }
     @ObservationIgnored var focusIslandAction: () -> Void = {}
     @ObservationIgnored var runOnboardingAction: () -> Void = {}
+    @ObservationIgnored var openCodeAssistAction: () -> Void = {}
 
     init() {
         let encryption: EncryptionService
@@ -96,6 +104,12 @@ final class AppModel {
         let session = SessionController(library: library, playbooks: { PlaybookLibrary() })
         self.session = session
         detector = MeetingDetector(isBusy: { session.isBusy })
+        codeAssist = CodeAssistEngine(
+            service: AnthropicClient.relay(),
+            screenReader: { try await CodeAssistBridge.readScreen() },
+            environment: { CodeAssistBridge.environment() },
+            isCallLive: { session.isLive },
+            prewarm: { CodeAssistBridge.prewarm() })
 
         // The real provider needs `self`; rebind now that it exists.
         session.playbookProvider = { [weak self] in self?.playbooks ?? PlaybookLibrary() }
@@ -111,7 +125,7 @@ final class AppModel {
     func refreshLibrary() {
         Task {
             sessions = await library.entries()
-            monthlyCost = await library.monthlyCost()
+            monthlyCost = await library.monthlyCost() + CodeAssistUsage.monthTotal(defaults: .standard)
         }
     }
 
@@ -249,6 +263,25 @@ final class AppModel {
         guard session.isLive, let copilot = session.copilot, copilot.canLook else { return }
         copilot.look(question: question)
         panelExpanded = true
+    }
+
+    /// ⌥⌘L: Look in the live panel during a call; Code Assist otherwise.
+    func lookHotkey() {
+        if session.isLive {
+            lookAtScreen()
+        } else if codeAssistEnabled {
+            codeLook()
+        }
+    }
+
+    func openCodeAssist() {
+        openCodeAssistAction()
+    }
+
+    /// Opens Code Assist and reads the window in front.
+    func codeLook(question: String? = nil) {
+        openCodeAssist()
+        codeAssist.look(question: question)
     }
 
     func openScreenRecordingSettings() {

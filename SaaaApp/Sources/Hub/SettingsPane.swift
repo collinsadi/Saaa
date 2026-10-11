@@ -1,6 +1,7 @@
 import AnthropicKit
 import AppKit
 import CallSession
+import Copilot
 import Core
 import DesignSystem
 import Persistence
@@ -20,6 +21,7 @@ struct SettingsPane: View {
             RecordingSection()
             PermissionsSection()
             IslandSection()
+            CodeAssistSection(model: model)
             ScreenPrivacySection()
             DataSection(model: model)
         }
@@ -416,10 +418,82 @@ private struct IslandSection: View {
             LabeledContent("Start or stop a session") { KeyCap("⌥⌘R") }
             LabeledContent("Answer what they just asked") { KeyCap("⌥⌘A") }
             LabeledContent("Ask Saaa anything") { KeyCap("⌥⌘K") }
+            LabeledContent("Look at your screen") { KeyCap("⌥⌘L") }
             LabeledContent("Quick actions, in the live panel") { KeyCap("⌘1 to ⌘4") }
         } header: {
             Text("Island and shortcuts")
         }
+    }
+}
+
+// MARK: - Code Assist
+
+private struct CodeAssistSection: View {
+    @Bindable var model: AppModel
+
+    @State private var available: [(bundleID: String, name: String)] = []
+
+    private var engine: CodeAssistEngine { model.codeAssist }
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $model.codeAssistEnabled) {
+                Text("Code Assist outside calls")
+                Text("⌥⌘L reads the window in front and helps with errors, code and coding problems. While this is on, Finder and Safari lose their own ⌥⌘L.")
+            }
+            Toggle(isOn: Binding(get: { engine.watchEnabled }, set: { engine.watchEnabled = $0 })) {
+                Text("Watch my code")
+                Text("In the apps below, Saaa reads the window after you pause typing and flags new errors. Only errors reach Claude on their own, at most once a minute. Paused during calls.")
+            }
+            if engine.watchEnabled {
+                ForEach(available, id: \.bundleID) { app in
+                    Toggle(app.name, isOn: Binding(
+                        get: { engine.watchedApps.contains(app.bundleID) },
+                        set: { on in
+                            if on { engine.watchedApps.insert(app.bundleID) } else { engine.watchedApps.remove(app.bundleID) }
+                        }))
+                }
+                LabeledContent("Another app") {
+                    Button("Add an app…") { addApp() }
+                }
+            }
+            Toggle(isOn: Binding(get: { engine.learningMode }, set: { engine.learningMode = $0 })) {
+                Text("Learning mode")
+                Text("Coding problems start with a nudge instead of the approach.")
+            }
+            LabeledContent("Code Assist panel") {
+                Button("Open") { model.openCodeAssist() }
+            }
+        } header: {
+            Text("Code Assist")
+        } footer: {
+            Text("Code Assist reads windows on this Mac and sends only their text, after hiding secrets such as keys and passwords. Hints stay in memory until Saaa quits. On a call, and on pages that look like an assessment or a test, coding problems get the approach, never solution code.")
+        }
+        .onAppear(perform: refresh)
+        .onChange(of: engine.watchedApps) { _, _ in refresh() }
+    }
+
+    /// Known editors that are installed, plus any app the user added.
+    private func refresh() {
+        let workspace = NSWorkspace.shared
+        var apps = CodeAssistSettings.knownApps.filter { workspace.urlForApplication(withBundleIdentifier: $0.bundleID) != nil }
+        let known = Set(CodeAssistSettings.knownApps.map(\.bundleID))
+        for bundleID in engine.watchedApps.sorted() where !known.contains(bundleID) {
+            let name = workspace.urlForApplication(withBundleIdentifier: bundleID)
+                .map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") } ?? bundleID
+            apps.append((bundleID, name))
+        }
+        available = apps
+    }
+
+    private func addApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(filePath: "/Applications")
+        panel.message = "Choose an app for Watch to read."
+        guard panel.runModal() == .OK, let url = panel.url,
+              let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
+        engine.watchedApps.insert(bundleID)
     }
 }
 

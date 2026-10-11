@@ -1,5 +1,6 @@
 import AppKit
 import CallSession
+import Copilot
 import Core
 import DesignSystem
 import Observation
@@ -30,7 +31,7 @@ struct SaaaApp: App {
                 Text("Running a self-test…")
             }
         } label: {
-            MenuBarLabel(session: shell?.model.session)
+            MenuBarLabel(session: shell?.model.session, hintWaiting: (shell?.model.codeAssist.unread ?? 0) > 0)
         }
     }
 }
@@ -78,6 +79,7 @@ final class AppShell {
     private let hub: HubPresenter
     private let prep: PrepPresenter
     private let onboarding: OnboardingPresenter
+    private let codeAssist: CodeAssistPresenter
     private var hotkeys: [HotkeyMonitor] = []
     /// ⌥⌘L, held only while a session is live.
     private var lookHotkey: HotkeyMonitor?
@@ -92,6 +94,9 @@ final class AppShell {
         self.prep = prep
         self.island = island
         onboarding = OnboardingPresenter(model: model)
+        let codeAssist = CodeAssistPresenter(model: model)
+        self.codeAssist = codeAssist
+        model.openCodeAssistAction = { codeAssist.show() }
 
         model.openHubAction = { _ in hub.show() }
         model.openPrepAction = { context, playbook in prep.show(context: context, playbook: playbook) }
@@ -121,17 +126,18 @@ final class AppShell {
         }
     }
 
-    /// Registers ⌥⌘L while a session is live and releases it after, so
-    /// Finder and Safari keep their Downloads shortcut the rest of the time.
+    /// Registers ⌥⌘L while a session is live or Code Assist is on, and
+    /// releases it otherwise, so Finder and Safari keep their Downloads
+    /// shortcut the rest of the time.
     private func trackLiveHotkeys() {
-        let live = withObservationTracking {
-            model.session.isLive
+        let wanted = withObservationTracking {
+            model.session.isLive || model.codeAssistEnabled
         } onChange: { [weak self] in
             Task { @MainActor in self?.trackLiveHotkeys() }
         }
-        if live, lookHotkey == nil {
-            lookHotkey = HotkeyMonitor(binding: .optionCommandL, id: 4) { [weak model] in model?.lookAtScreen() }
-        } else if !live {
+        if wanted, lookHotkey == nil {
+            lookHotkey = HotkeyMonitor(binding: .optionCommandL, id: 4) { [weak model] in model?.lookHotkey() }
+        } else if !wanted {
             lookHotkey = nil
         }
     }
@@ -163,9 +169,11 @@ final class AppShell {
     }
 }
 
-/// The menu-bar glyph: the brand mark at rest, a record glyph while live.
+/// The menu-bar glyph: the brand mark at rest, a record glyph while live,
+/// a lightbulb when Watch has a hint waiting.
 struct MenuBarLabel: View {
     let session: SessionController?
+    var hintWaiting = false
 
     var body: some View {
         if let session, session.isLive {
@@ -174,6 +182,9 @@ struct MenuBarLabel: View {
         } else if let session, session.isBusy || !session.summarizing.isEmpty || !session.imports.isEmpty {
             Image(systemName: "waveform.circle")
                 .accessibilityLabel("Saaa, working")
+        } else if hintWaiting {
+            Image(systemName: "lightbulb.fill")
+                .accessibilityLabel("Saaa, a code hint is waiting")
         } else {
             Image("MenuBarIcon")
                 .accessibilityLabel("Saaa")
@@ -267,6 +278,13 @@ struct SaaaMenu: View {
                 }
             }
             Button("Prepare a session…") { model.openPrep() }
+            Divider()
+            Button(model.codeAssist.unread > 0 ? "Code Assist (\(model.codeAssist.unread) new)" : "Code Assist") {
+                model.openCodeAssist()
+            }
+            if model.codeAssistEnabled {
+                Button("Look at my code") { model.codeLook() }
+            }
         }
     }
 }
