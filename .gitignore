@@ -31,3 +31,6 @@ theme/
 .agent/
 .build-xcode/
 .build-release/
+
+# Relay data never belongs in git
+Server/data/

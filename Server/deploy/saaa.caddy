@@ -1,0 +1,7 @@
+# Saaa relay. Caddy terminates TLS with an automatic certificate and hands
+# requests to the relay on localhost. Streams are flushed immediately.
+__SAAA_HOST__ {
+	reverse_proxy 127.0.0.1:8787 {
+		flush_interval -1
+	}
+}

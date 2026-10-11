@@ -1,0 +1,32 @@
+[Unit]
+Description=Saaa relay (bring-your-own Anthropic key)
+Documentation=https://github.com/collinsadi/Saaa/tree/main/Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=saaa
+Group=saaa
+EnvironmentFile=/collins/saa/relay.env
+ExecStart=/collins/saa/bin/saaa-relay
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+# The relay only needs its data folder and the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/collins/saa/data
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
