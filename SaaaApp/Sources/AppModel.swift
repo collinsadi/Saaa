@@ -13,6 +13,7 @@ import os
 enum HubPane: String, CaseIterable, Identifiable, Hashable {
     case home
     case sessions
+    case memory
     case playbooks
     case settings
 
@@ -22,6 +23,7 @@ enum HubPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: "Home"
         case .sessions: "Sessions"
+        case .memory: "Ask all calls"
         case .playbooks: "Playbooks"
         case .settings: "Settings"
         }
@@ -31,6 +33,7 @@ enum HubPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .home: "house"
         case .sessions: "waveform.badge.magnifyingglass"
+        case .memory: "text.magnifyingglass"
         case .playbooks: "books.vertical"
         case .settings: "gearshape"
         }
@@ -50,6 +53,8 @@ final class AppModel {
     let detector: MeetingDetector
     /// Code help outside calls: Look, Watch and the problem ladder.
     let codeAssist: CodeAssistEngine
+    /// Ask all calls, and the prep brief from past calls.
+    let memory: MemoryEngine
     /// False when the content key could not be read: sessions this run
     /// can't be reopened later, and the UI says so.
     let encryptionHealthy: Bool
@@ -112,6 +117,7 @@ final class AppModel {
             environment: { CodeAssistBridge.environment() },
             isCallLive: { session.isLive },
             prewarm: { CodeAssistBridge.prewarm() })
+        memory = MemoryEngine(service: AnthropicClient.relay(), index: { await library.memoryIndex() })
 
         // The real provider needs `self`; rebind now that it exists.
         session.playbookProvider = { [weak self] in self?.playbooks ?? PlaybookLibrary() }
@@ -130,7 +136,7 @@ final class AppModel {
     func refreshLibrary() {
         Task {
             sessions = await library.entries()
-            monthlyCost = await library.monthlyCost() + CodeAssistUsage.monthTotal(defaults: .standard)
+            monthlyCost = await library.monthlyCost() + MonthlyUsage.total(defaults: .standard)
         }
     }
 

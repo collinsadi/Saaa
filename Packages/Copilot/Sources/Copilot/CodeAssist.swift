@@ -131,19 +131,12 @@ public enum CodeAssistSettings {
 /// Code Assist runs outside sessions, so its cost goes into a small monthly
 /// total: a number per month, no content.
 public enum CodeAssistUsage {
-    static func key(for date: Date, calendar: Calendar) -> String {
-        let parts = calendar.dateComponents([.year, .month], from: date)
-        return String(format: "codeAssist.cost.%04d-%02d", parts.year ?? 0, parts.month ?? 0)
-    }
-
     public static func add(_ dollars: Double, defaults: UserDefaults, date: Date = .now, calendar: Calendar = .current) {
-        guard dollars > 0 else { return }
-        let key = key(for: date, calendar: calendar)
-        defaults.set(defaults.double(forKey: key) + dollars, forKey: key)
+        MonthlyUsage.add(dollars, kind: .codeAssist, defaults: defaults, date: date, calendar: calendar)
     }
 
     public static func monthTotal(defaults: UserDefaults, date: Date = .now, calendar: Calendar = .current) -> Double {
-        defaults.double(forKey: key(for: date, calendar: calendar))
+        MonthlyUsage.total(kind: .codeAssist, defaults: defaults, date: date, calendar: calendar)
     }
 }
 

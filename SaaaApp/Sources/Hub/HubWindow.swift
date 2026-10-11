@@ -130,6 +130,7 @@ struct HubView: View {
         switch model.hubPane {
         case .home: HomePane(model: model)
         case .sessions: SessionsPane(model: model)
+        case .memory: MemoryPane(model: model)
         case .playbooks: PlaybooksPane(model: model)
         case .settings: SettingsPane(model: model)
         }

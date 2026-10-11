@@ -1,6 +1,8 @@
+import AnthropicKit
 import AppKit
 import CalendarContext
 import CallSession
+import Copilot
 import Core
 import DesignSystem
 import SwiftUI
@@ -68,6 +70,8 @@ struct PrepSheet: View {
     @Environment(\.saaa) private var saaa
     @State private var context: SessionContext
     @State private var playbookID: String
+    @State private var briefing = false
+    @State private var briefNote: String?
     @FocusState private var focus: Field?
 
     private enum Field: Hashable {
@@ -127,6 +131,7 @@ struct PrepSheet: View {
                         RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                             .fill(saaa.surfaceInset))
                     .focused($focus, equals: .notes)
+                pastCallsRow
             }
             footer
         }
@@ -166,6 +171,47 @@ struct PrepSheet: View {
             .buttonStyle(.glass)
             .fixedSize()
             .help("Playbook")
+        }
+    }
+
+    /// A brief from earlier calls with these people or on this topic,
+    /// added to the notes where it can be edited.
+    private var pastCallsRow: some View {
+        HStack(spacing: Space.sm) {
+            Button(action: pullFromPastCalls) {
+                Label(briefing ? "Reading past calls…" : "From past calls", systemImage: "clock.arrow.circlepath")
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+            .disabled(briefing || !model.hasAPIKey || model.sessions.isEmpty
+                || (context.title + context.participants).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Searches your earlier calls on this Mac and sends the matching excerpts to Claude for a short brief")
+            if let briefNote {
+                Text(briefNote)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func pullFromPastCalls() {
+        briefing = true
+        briefNote = nil
+        let current = cleaned
+        Task {
+            do {
+                if let brief = try await model.memory.brief(for: current) {
+                    let block = "From past calls:\n" + brief
+                    let existing = context.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                    context.notes = existing.isEmpty ? block : existing + "\n\n" + block
+                } else {
+                    briefNote = "No earlier calls mention them yet."
+                }
+            } catch {
+                briefNote = (error as? AnthropicError)?.userMessage ?? "Couldn't read past calls. Try again."
+            }
+            briefing = false
         }
     }
 
