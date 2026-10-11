@@ -326,6 +326,7 @@ private struct PlaybookEditor: View {
                 knowledgeSection
                 summarySection
                 behaviorSection
+                coachingSection
                 matchingSection
                 if !isNew {
                     manageSection
@@ -600,6 +601,22 @@ private struct PlaybookEditor: View {
                 "Draft a follow-up email",
                 detail: "A short email you can edit and send after the call.",
                 isOn: $draft.draftsFollowUpEmail)
+        }
+    }
+
+    private var coachingSection: some View {
+        EditorSection(
+            "Coaching",
+            caption: "Talk time, pace and questions are measured on this Mac. The checklist fills in during the call and is scored in the summary."
+        ) {
+            SwitchRow(
+                "Coach me",
+                detail: "A nudge when you've talked a while, and what went well and what to try next in the summary.",
+                isOn: Binding(get: { draft.coaches }, set: { draft.coaching = $0 }))
+            Divider()
+            TokenEditor(
+                tokens: Binding(get: { draft.checklistItems }, set: { draft.checklist = $0 }),
+                placeholder: "Add what to cover, like Budget or Next step agreed")
         }
     }
 

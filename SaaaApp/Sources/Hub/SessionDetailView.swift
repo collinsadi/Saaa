@@ -26,6 +26,7 @@ struct SessionDetailView: View {
         case summary = "Summary"
         case transcript = "Transcript"
         case copilot = "Copilot"
+        case coaching = "Coaching"
         case ask = "Ask"
         var id: String { rawValue }
     }
@@ -79,11 +80,12 @@ struct SessionDetailView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 380)
+                .frame(width: 470)
                 switch tab {
                 case .summary: summaryTab(record)
                 case .transcript: transcriptTab(record)
                 case .copilot: copilotTab(record)
+                case .coaching: coachingTab(record)
                 case .ask: AskThisCall(model: model, record: record, onUpdate: save)
                 }
             }
@@ -265,6 +267,41 @@ struct SessionDetailView: View {
             Text("The summary appears here once it's written.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Coaching tab
+
+    /// Speaking stats measured on the Mac, the playbook's checklist and
+    /// Claude's feedback from the summary.
+    private func coachingTab(_ record: SessionRecord) -> some View {
+        let stats = CallCoach.stats(record.transcript.segments)
+        return VStack(alignment: .leading, spacing: Space.lg) {
+            VStack(alignment: .leading, spacing: Space.md) {
+                SectionLabel("How you spoke")
+                CoachStatsGrid(stats: stats)
+                Text("Measured on this Mac from the transcript.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .saaaCard()
+            if let checklist = record.summary?.checklist {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    SectionLabel("Checklist", trailing: "\(checklist.filter(\.covered).count) of \(checklist.count)")
+                    ChecklistRows(rows: checklist.map { .init(item: $0.item, covered: $0.covered, evidence: $0.evidence) })
+                }
+                .saaaCard()
+            }
+            if let coaching = record.summary?.coaching {
+                bulletCard("What went well", coaching.wentWell)
+                bulletCard("Try next time", coaching.tryNext)
+            } else {
+                Text(record.summary == nil
+                    ? "Feedback on how you ran the call arrives with the summary, for playbooks that coach."
+                    : "This summary has no feedback. Turn on coaching for the playbook, then rewrite the summary.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

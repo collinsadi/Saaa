@@ -28,6 +28,7 @@ struct LivePanel: View {
         case copilot = "Copilot"
         case transcript = "Transcript"
         case notes = "Notes"
+        case coach = "Coach"
         var id: String { rawValue }
     }
 
@@ -50,6 +51,8 @@ struct LivePanel: View {
                     .padding(.horizontal, Space.lg)
                     .padding(.bottom, Space.sm)
             }
+            CoachNudge(session: session)
+                .padding(.horizontal, Space.lg)
             tabRow
                 .padding(.horizontal, Space.lg)
                 .padding(.bottom, Space.sm)
@@ -58,6 +61,7 @@ struct LivePanel: View {
                 case .copilot: copilotTab
                 case .transcript: LiveTranscriptList(session: session)
                 case .notes: notesTab
+                case .coach: LiveCoachTab(session: session)
                 }
             }
             .frame(height: 268, alignment: .top)
@@ -234,7 +238,7 @@ struct LivePanel: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 270)
+            .frame(width: 340)
             Spacer()
             if tab == .notes, let copilot {
                 Button {
@@ -560,6 +564,66 @@ struct LivePanel: View {
             model.answerNow()
         } else {
             copilot?.ask(text)
+        }
+    }
+}
+
+/// How I'm speaking and what's left on the playbook's checklist. Its own
+/// view: the stats change with every committed line.
+private struct LiveCoachTab: View {
+    let session: SessionController
+
+    @Environment(\.saaa) private var saaa
+
+    var body: some View {
+        let checklist = session.playbook.checklistItems
+        let covered = session.copilot?.notes?.coveredItems(of: checklist) ?? []
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.md) {
+                SectionLabel("How you're speaking")
+                CoachStatsGrid(stats: session.coaching)
+                if !checklist.isEmpty {
+                    SectionLabel("Checklist", trailing: "\(covered.count) of \(checklist.count)")
+                        .padding(.top, Space.xs)
+                    ChecklistRows(rows: checklist.map { ChecklistRows.Row(item: $0, covered: covered.contains($0)) })
+                    if session.copilot == nil || !session.playbook.liveNotes {
+                        Text("The checklist fills in with the running notes, which are off for this call.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(saaa.textTertiary)
+                    }
+                }
+                Text("Measured on this Mac from the transcript.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(saaa.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Space.lg)
+        }
+    }
+}
+
+/// A gentle nudge once I've held the floor for a while, on playbooks that
+/// coach. Its own view: it follows the clock.
+private struct CoachNudge: View {
+    let session: SessionController
+
+    @Environment(\.saaa) private var saaa
+
+    var body: some View {
+        let turn = session.playbook.coaches ? session.currentTurn : 0
+        if turn >= CallCoach.monologueNudge {
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 10))
+                Text("You've been talking for \(CoachFormat.duration(turn)). Leave room for them?")
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                Spacer()
+            }
+            .foregroundStyle(saaa.tideEmphasis)
+            .padding(.bottom, Space.sm)
+            .transition(.opacity)
+            .accessibilityElement(children: .combine)
         }
     }
 }
