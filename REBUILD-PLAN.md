@@ -8,8 +8,8 @@
 |---|---|
 | **Document** | Rebuild plan v2. Supersedes v1 of this file and the filing roadmap in ARCHITECTURE.md §16 |
 | **Date** | 2026-10-11 |
-| **Status** | Approved, in build on `rebuild/live-copilot` (one commit per phase) |
-| **Baseline** | macOS 26+ only · Xcode 26+ · Swift 6 strict concurrency |
+| **Status** | Built on `rebuild/live-copilot` (one commit per phase), verified on device. See §7 |
+| **Baseline** | macOS 26+ only · Xcode 27+ · Swift 6 strict concurrency |
 | **Reasoning** | Claude API direct (streaming Messages API), bring-your-own key in the Keychain |
 | **Transcription** | Apple SpeechAnalyzer, on-device, live (replaces Whisper) |
 
@@ -68,12 +68,12 @@ Saaa listens to both sides of your call on your Mac and helps you in the moment:
 
 | Area | Decision |
 |---|---|
-| Platform | macOS 26.0+, Apple silicon. Xcode 26+ to build. `MACOSX_DEPLOYMENT_TARGET = 26.0`, all packages `.macOS(.v26)` |
+| Platform | macOS 26.0+, Apple silicon. Xcode 27+ to build (the macOS 27 SDK carries the SpeechAnalyzer resource-limit option, used behind `#available`). `MACOSX_DEPLOYMENT_TARGET = 26.0`, all packages `.macOS(.v26)` |
 | Transcription | `SpeechAnalyzer` + `SpeechTranscriber` (time-indexed progressive preset), one analyzer per lane. `DictationTranscriber` when the locale is outside SpeechTranscriber's list. Custom vocabulary through `AnalysisContext.contextualStrings` |
 | Reasoning | Claude Messages API over HTTPS, SSE streaming, `anthropic-version: 2023-06-01`. No server of ours in between |
 | Models | Live answers + notes: `claude-haiku-5-5`. Summary + Ask this call: `claude-sonnet-5-5`. "Best" option: `claude-opus-5-5`. One catalog, overridable in Settings |
 | Key | Bring your own key, verified live in onboarding, stored in the login Keychain, never in defaults or logs |
-| Structured output | Summaries use a forced tool call with a JSON schema (works on every model, parses deterministically) |
+| Structured output | Summaries use `output_config.format` with a strict JSON schema (`additionalProperties: false`). The 5.5 models reject forced `tool_choice`, and they no longer take `temperature` |
 | Storage | Encrypted per-session archive + encrypted library index. SwiftData removed (the index is small and fully encrypted) |
 | Audio retention | WAVs are written during capture for crash safety and deleted at seal by default |
 | Legacy | Claude Code / Codex bridges, matching, repo write-back, Code Assist, Whisper and filing memory are deleted. Old sealed sessions migrate into the new library |
@@ -133,7 +133,7 @@ Chunks hold a fixed number of settled lines (older than ~6 s, so both lanes have
 | First token on screen | ≤ 1.2 s from tap |
 | Complete answer (≤ 90 words) | ≤ 2.5 s |
 
-First-token time is measured on every request and shown in Settings ▸ Claude.
+First-token time is measured on every request and shown on each answer card; the connection test in Settings reports the round trip. Measured on the build Mac (Oct 11): first words on screen 1.1 s after speech starts; first answer token 0.7 to 0.8 s on a warm connection, 1.2 s from a cold process.
 
 ### 3.5 Cost model (published prices, Oct 2026)
 
@@ -161,7 +161,7 @@ Each phase ends with: package tests green, the app building, and a commit on `re
 
 **Phase 1: AnthropicKit**
 - SSE parser (pure, byte-split safe), typed stream events, `URLSession.bytes` transport behind a protocol, cancellation and timeouts.
-- Request types with `cache_control`, forced tools, deterministic key order (unordered JSON breaks caching).
+- Request types with `cache_control`, JSON-schema structured output, deterministic key order (unordered JSON breaks caching).
 - Errors: auth, permission, rate limit (Retry-After), overloaded, request too large, server, network, malformed, timeout, mid-stream `error` events.
 - Model catalog + roles, usage accounting (`cache_read`, `cache_creation` 5 m / 1 h) and cost; Keychain key store; key verifier.
 - **Done when:** unit tests cover parsing, encoding, errors and costs; the live test streams a real Haiku 5.5 answer, cancels a stream mid-flight, and sees a cache read on the second call.
@@ -203,9 +203,9 @@ Each phase ends with: package tests green, the app building, and a commit on `re
 ### P2 · After the call, and ship
 
 **Phase 8: Summary, Ask this call, library**
-- Summary via forced tool call (Sonnet 5.5), seeded with live notes; follow-up email; playbook sections.
+- Summary via JSON-schema structured output (Sonnet 5.5), seeded with live notes; follow-up email; playbook sections.
 - Session detail: summary document, copilot thread, transcript with search, Ask this call (streaming, cached transcript).
-- Export Markdown / HTML (redaction option), copy, save to a folder (per-playbook default), share.
+- Export Markdown / HTML (redaction option), copy, save to a folder you pick once.
 - **Done when:** a finished call yields a correct summary within ~10 s of stopping.
 
 **Phase 9: Retire, migrate, document, release**
@@ -220,9 +220,9 @@ Each phase ends with: package tests green, the app building, and a commit on `re
 
 | Risk | Mitigation |
 |---|---|
-| Two concurrent `SpeechAnalyzer` sessions hit a resource limit | Retry the second lane with `ignoresResourceLimits`; if it still fails, transcribe Them live and Me in a finalize pass |
+| Two concurrent `SpeechAnalyzer` sessions hit a resource limit | Each lane retries once (on macOS 27 with `ignoresResourceLimits`); if Me still fails, Them stays live and the panel says the Me transcript is paused while recording continues |
 | Locale not covered by SpeechTranscriber | `DictationTranscriber` for the locale; Settings lists supported languages |
-| Echo on speakers duplicates lines | Echo guard in `LiveTranscript`; headphones tip in the panel when echo is detected |
+| Echo on speakers garbles the Me lane | `EchoGate` silences mic frames that carry only the other side (frame energy against a learned speaker-to-mic coupling) before recognition; the text echo guard drops exact repeats; the panel suggests headphones once filtering is active |
 | API outage, rate limit, offline | Quiet inline notice, retry with backoff for summaries, live answers never block capture |
 | Transcript leaves the device | Stated in onboarding, Settings and docs; nothing is sent until the copilot runs; per-session usage visible |
 | Glass legibility over busy backgrounds | Glass only for chrome; reading surfaces are plain; Reduce Transparency respected |
@@ -243,14 +243,23 @@ Each phase ends with: package tests green, the app building, and a commit on `re
 
 ## 7. Status
 
-| Phase | State |
-|---|---|
-| 1 AnthropicKit | in progress |
-| 2 Live transcription | planned |
-| 3 Copilot engine | planned |
-| 4 Playbooks and prep | planned |
-| 5 Liquid Glass | planned |
-| 6 Onboarding | planned |
-| 7 Screen Privacy | planned |
-| 8 Summary and library | planned |
-| 9 Retire and ship | planned |
+| Phase | State | Commit |
+|---|---|---|
+| 1 AnthropicKit | done | `9bc4814` |
+| 2 Live transcription | done | `70241dc` |
+| 3 Copilot engine | done | `11a031b` |
+| 4 Playbooks and prep | done | `11a031b`, `8568bca` |
+| 5 Liquid Glass | done | `8568bca` |
+| 6 Onboarding | done | `8568bca`, `d2d2838` |
+| 7 Screen Privacy | done in code; confirm in a real screen share | `8568bca` |
+| 8 Summary and library | done | `8568bca`, `d2d2838` |
+| 9 Retire, migrate, document, release | done; v0.9.0 is the first release of the rebuild | this commit |
+
+**Verification so far**
+
+- 183 tests in 9 packages pass (`swift test` in each), including the echo gate and the speech integration tests on the device.
+- Live Claude tests (opt-in, real key): streaming, cache read on the second call, cancellation, structured output, key verification.
+- In-app self-tests on the build Mac: `--selftest-transcribe` (first partial 1.09 s, correct text), `--selftest-pipeline` (synthesized question, live transcript, question detected, streamed Haiku answer grounded in the playbook's knowledge, first token 1.19 s from a cold process).
+- A real session recorded, transcribed, summarized and reopened in the hub.
+
+**Still to check by hand**: Screen Privacy in a live screen share, the echo gate on laptop speakers in a real call, and the first-run flow on a clean user account.

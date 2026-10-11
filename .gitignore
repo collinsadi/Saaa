@@ -30,3 +30,4 @@ theme/
 .env
 .agent/
 .build-xcode/
+.build-release/

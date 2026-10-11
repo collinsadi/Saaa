@@ -5,38 +5,53 @@
   </picture>
 </p>
 
-<p align="center"><b>Every call, in context.</b></p>
+<p align="center"><b>A copilot for every call.</b></p>
 
-Saaa is a native macOS utility that turns your calls into durable project knowledge. Press one hotkey during a call. Saaa records both sides, transcribes on your Mac, works out which of your local projects the conversation belongs to, and writes the decisions, preferences, and action items back into that repository. You approve every write.
+Saaa is a native macOS app that hears both sides of your calls on your Mac and helps while you talk. It keeps a live transcript, answers what the other side just asked in about a second, suggests what to say or ask next, and keeps running notes. When you hang up, the summary is already being written, and you can ask any past call a question.
 
-Nothing leaves your machine. Audio is captured with Core Audio process taps, transcribed locally with Whisper, and deleted the moment its transcript exists. Transcripts are encrypted at rest. The only network traffic is your own Claude Code subscription doing the reasoning, plus a one-time model download.
+It works with any call app: Zoom, Meet in a browser, Teams, FaceTime, Slack huddles. There is no bot in the meeting and nothing to install for the other people.
 
 ## How it works
 
-1. Press the global hotkey while you are in a call. Saaa finds the conferencing app and records your microphone and the remote side as two separate, sample-aligned streams.
-2. When the call ends, both streams are transcribed locally with Whisper and merged into a single Me and Them transcript. The calendar event you were in seeds the vocabulary so names and project terms come out right.
-3. A local prefilter shortlists the projects your Claude Code already knows. Claude Code then reads the shortlist and the transcript and returns a match with a confidence score, the call type, and the context worth keeping.
-4. A review window shows the transcript, the match, and each extracted item. You untick what you do not want. One click writes decision logs, client preferences, specs, and action items into the matched repository. Writes are additive and refuse to touch files that changed since review.
-5. The sealed session lands in History. Raw audio is already gone.
+**Before the call.** When a calendar meeting with a video link starts, or a call app starts using audio, the island under the notch offers to start, with a playbook picked from the meeting title. Click it or press ⌥⌘R. Prep is optional: add a goal, who's on the call and notes, or fill them from the calendar.
 
-## The island
+**During the call.** The island stays black and fused with the notch: recording lamp, timer, levels. Click it and a Liquid Glass panel drops down with:
 
-Saaa lives in the MacBook notch. A dark island grows out of the hardware while you record, shows live Me and Them meters, and retreats when it has filed the call. Macs without a notch get a floating capsule. The menu bar remains the keyboard-accessible route.
+- an answer card that streams in about a second, with one line you can say first and the facts behind it,
+- quick actions from the playbook (Answer, What to say, What to ask, Catch me up, plus extras like Handle objection), on ⌘1 to ⌘4,
+- an Ask field for anything else (⌥⌘K from any app, ⌘↩ to answer what they just asked),
+- a "They asked" chip when someone asks you a question, with one-tap or automatic answers,
+- live notes: key points, decisions, action items and open questions,
+- the live transcript, Me and Them, with words in progress shown lighter.
 
-## Privacy posture
+**After the call.** Stop and the transcript is final. The summary arrives seeded by the live notes: TL;DR, decisions, action items with owners, open questions, the playbook's own sections and an optional follow-up email. Copy it, save it to a folder you choose once (a repo's docs folder or a notes vault), export Markdown or HTML with optional redaction, or open Ask this call. You can also drop in a recording and get the same transcript and summary.
 
-- Recording, transcription, matching, and storage all happen on this Mac.
-- Audio is deleted after transcription by default. Transcripts, matches, and judgments are sealed with AES-GCM using a key in your Keychain.
-- A visible indicator is always shown while recording. Consent laws vary by place; telling people you record is your responsibility.
-- Logs contain state transitions and error codes, never call content.
-- No repository is ever written without an explicit confirmation, and low-confidence matches are presented as unfiled rather than guessed.
+## Playbooks
+
+A playbook tells the copilot who you are on this kind of call: instructions in your own words, quick actions, words to listen for (they also tune transcription), reference material such as pricing sheets or rubrics, summary sections and whether to answer questions automatically. Eight come built in: General, Sales, Customer Success, Recruiting (interviewer side), Investor pitch, Standup, 1:1 and Lecture. Edit them or make your own.
+
+## Privacy and data flow
+
+- **Audio never leaves your Mac.** Your microphone and the call app's audio are captured as two separate streams and transcribed by Apple's on-device speech model.
+- **Only text goes to Claude, with your own key.** When the copilot answers, writes notes, summarizes or answers Ask this call, Saaa sends transcript text, your playbook and your prep notes to the Anthropic API. Nothing is sent while the copilot is idle, and nothing goes to a server of ours. There isn't one.
+- **Encrypted at rest.** Transcripts, notes, summaries and playbooks are sealed with AES-GCM using a key kept in your Keychain. The API key also lives in the Keychain. Audio files are deleted once the transcript is saved unless you choose to keep them.
+- **No telemetry.** Logs record state changes and error codes, never call content.
+- **Consent is visible.** A recording indicator is always on screen while Saaa records, and nothing starts without you. Saaa reminds you to tell people and gives you a line to paste into the chat. Recording laws vary by place; telling people is your responsibility.
+- **Screen Privacy is your choice.** Off by default. When on, Saaa's windows are left out of screenshots and shared screens. It can't hide anything from a camera, and it doesn't replace telling people.
+
+## Cost
+
+You pay Anthropic directly for what you use. With the default models (Claude Haiku 5.5 for live help and notes, Claude Sonnet 5.5 for summaries and Ask this call), an hour-long call with regular live help typically costs a few cents. Prompts are shaped for caching, so each live answer pays full price only for the newest part of the conversation. Every session records its usage, and Settings shows this month's total. Models can be changed per role.
+
+## Download
+
+Get `Saaa.dmg` from the [latest release](https://github.com/collinsadi/Saaa/releases/latest), open it and drag Saaa into Applications. It's signed and notarized.
 
 ## Requirements
 
-- Apple Silicon Mac with macOS 15 or newer.
-- Xcode 16.4 or newer to build.
-- [Claude Code](https://claude.com/claude-code) installed and signed in, for project matching and extraction. Saaa works without it; calls simply stay unfiled.
-- About 2 GB of disk for the Whisper model, downloaded once on first run.
+- Apple silicon Mac with macOS 26 or newer.
+- A Claude API key from the [Claude Console](https://console.anthropic.com/settings/keys). Without a key, Saaa still records and transcribes.
+- Xcode 27 or newer to build.
 
 ## Build and run
 
@@ -46,7 +61,7 @@ cd Saaa
 xcodebuild -project Saaa.xcodeproj -scheme Saaa -configuration Debug build
 ```
 
-Copy the built app to Applications and launch it from there. First run walks you through permissions (microphone, system audio, calendar), the model download, and the Claude Code check. The system audio grant is added manually in System Settings under Privacy and Security, in the System Audio Recording Only list; onboarding guides and verifies the step.
+Copy the built app to Applications and launch it from there. First run walks you through what Saaa does with your audio, the permissions it needs (microphone, system audio and optionally calendar), your Claude API key, the speech model download and a default playbook. Every step can be skipped and run again from Settings.
 
 Tests live in each local package:
 
@@ -54,17 +69,41 @@ Tests live in each local package:
 for p in Packages/*/; do (cd "$p" && swift test); done
 ```
 
+The Claude integration tests stay off unless you opt in with your own key:
+
+```sh
+cd Packages/AnthropicKit && SAAA_LIVE_API=1 ANTHROPIC_API_KEY=... swift test --filter Live
+```
+
+## Shortcuts
+
+| Keys | Does |
+|---|---|
+| ⌥⌘R | Start or stop a session, from any app |
+| ⌥⌘A | Answer what they just asked |
+| ⌥⌘K | Open the live panel with Ask focused |
+| ⌘1 to ⌘4 | Quick actions, in the live panel |
+| ⌘↩ | In the Ask field: answer the latest question |
+
 ## Project layout
 
-Ten local Swift packages behind one app target: AudioCapture, CallSession, Transcription, CalendarContext, Matching, ClaudeBridge, Extraction, Persistence, DesignSystem, and Core. Swift 6 with strict concurrency throughout. The UI binds to design tokens generated from the Figma foundations; the audio hot path is lock-free and allocation-free.
+One app target over nine local Swift packages, Swift 6 with strict concurrency throughout:
+
+| Package | Role |
+|---|---|
+| Core | Transcript, playbook, summary and usage models; question detection; redaction; Screen Privacy policy |
+| AnthropicKit | Streaming Messages API client, structured output, model catalog and pricing, Keychain key store |
+| AudioCapture | Core Audio process taps and microphone capture, lock-free hot path, live 16 kHz sample stream |
+| Transcription | SpeechAnalyzer lanes per side, live transcript with echo guard, speech asset install, file transcription |
+| Copilot | Cache-shaped prompt composer, copilot engine, live notes, summaries, Ask this call |
+| CallSession | Session lifecycle, global hotkeys, meeting detection, imports |
+| CalendarContext | EventKit reader for current and upcoming meetings |
+| Persistence | AES-GCM sealing, session library and search, playbook store, export, migration |
+| DesignSystem | Tokens, Liquid Glass modifiers and shared components |
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). AI agents contributing code must follow [AI_POLICY.md](AI_POLICY.md). Security reports go through [SECURITY.md](SECURITY.md).
-
-## Third party
-
-Saaa vendors the [whisper.cpp](https://github.com/ggml-org/whisper.cpp) XCFramework (MIT License) and downloads Whisper and Silero VAD model weights at first run.
 
 ## License
 

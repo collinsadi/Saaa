@@ -6,7 +6,8 @@
 
 - [ ] Package tests pass
 - [ ] Built and ran the app
-- [ ] Hardware capture verified (required for AudioCapture changes)
+- [ ] Hardware capture verified (required for AudioCapture and Transcription changes)
+- [ ] Live Claude tests run (required for AnthropicKit and prompt changes)
 
 ## AI involvement
 

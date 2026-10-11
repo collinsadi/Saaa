@@ -18,6 +18,10 @@ codesign --force --deep --sign "$CERT" --entitlements "$ENTITLEMENTS" "$APP"
 echo "== deploying to /Applications"
 pkill -x Saaa 2>/dev/null || true
 sleep 1
-ditto "$APP" /Applications/Saaa.app
+ditto "$APP" /Applications/Saaa.app || {
+    echo "macOS blocked replacing /Applications/Saaa.app. A notarized install is"
+    echo "protected (App Management): move it to the Trash in Finder, then rerun."
+    exit 1
+}
 open /Applications/Saaa.app
 echo "done - Saaa relaunched"

@@ -12,16 +12,24 @@ IDENTITY="${1:?usage: release.sh \"Developer ID Application: Name (TEAMID)\" [no
 PROFILE="${2:-saaa-notary}"
 
 echo "== build (Release)"
-xcodebuild -project Saaa.xcodeproj -scheme Saaa -configuration Release build | grep -E "^\*\*" || true
-APP=$(ls -d "$HOME"/Library/Developer/Xcode/DerivedData/Saaa-*/Build/Products/Release/Saaa.app | head -1)
+DERIVED="$PWD/.build-release"
+mkdir -p "$DERIVED"
+xcodebuild -project Saaa.xcodeproj -scheme Saaa -configuration Release \
+  -derivedDataPath "$DERIVED" build > "$DERIVED/build.log" 2>&1 || {
+  grep -E "error:|BUILD FAILED" "$DERIVED/build.log" | head -30
+  exit 1
+}
+APP="$DERIVED/Build/Products/Release/Saaa.app"
 
 echo "== stage"
 rm -rf dist && mkdir dist
 cp -R "$APP" dist/Saaa.app
 
 echo "== sign (inside out)"
-codesign --force --options runtime --timestamp --sign "$IDENTITY" \
-  dist/Saaa.app/Contents/Frameworks/whisper.framework
+for framework in dist/Saaa.app/Contents/Frameworks/*.framework; do
+  [ -e "$framework" ] || continue
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$framework"
+done
 codesign --force --options runtime --timestamp \
   --entitlements SaaaApp/Saaa.entitlements --sign "$IDENTITY" dist/Saaa.app
 codesign --verify --deep --strict dist/Saaa.app
