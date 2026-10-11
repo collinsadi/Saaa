@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import os
 
 /// Live transcription for a call: one SpeechAnalyzer lane per side, fed
@@ -21,6 +22,14 @@ public final class LiveTranscriber: Sendable {
     private let continuation: AsyncStream<Event>.Continuation
     private let me = SpeechLane(lane: .me)
     private let them = SpeechLane(lane: .them)
+    /// Silences speaker echo before the Me recognizer hears it.
+    private let echoGate = Mutex(EchoGate())
+
+    /// Seconds of mic audio judged to be the other side coming through your
+    /// speakers (a reason to suggest headphones).
+    public var echoFilteredSeconds: Double {
+        echoGate.withLock { $0.silencedSeconds }
+    }
 
     public init() {
         (events, continuation) = AsyncStream.makeStream(of: Event.self, bufferingPolicy: .unbounded)
@@ -43,17 +52,28 @@ public final class LiveTranscriber: Sendable {
         return resolution
     }
 
-    /// Feeds one capture chunk to its lane.
+    /// Feeds one capture chunk to its lane. Mic audio goes through the echo
+    /// gate first, so the Me lane can trail by up to half a second.
     public func append(_ lane: LiveTranscript.Lane, samples: [Int16], startFrame: Int64) {
+        let released: [EchoGate.Chunk]
         switch lane {
-        case .me: me.append(samples, startFrame: startFrame)
-        case .them: them.append(samples, startFrame: startFrame)
+        case .me:
+            released = echoGate.withLock { $0.addMic(samples, startFrame: startFrame) }
+        case .them:
+            them.append(samples, startFrame: startFrame)
+            released = echoGate.withLock { $0.addSystem(samples, startFrame: startFrame) }
+        }
+        for chunk in released {
+            me.append(chunk.samples, startFrame: chunk.startFrame)
         }
     }
 
     /// Finalizes both lanes (every word heard becomes final), then ends
     /// the event stream.
     public func finish() async {
+        for chunk in echoGate.withLock({ $0.flush() }) {
+            me.append(chunk.samples, startFrame: chunk.startFrame)
+        }
         async let meDone: Void = me.finish()
         async let themDone: Void = them.finish()
         _ = await (meDone, themDone)

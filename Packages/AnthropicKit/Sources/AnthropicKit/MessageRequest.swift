@@ -246,6 +246,8 @@ public struct Tool: Sendable, Encodable, Equatable {
     }
 }
 
+/// How the model may use tools. The 5.5 models reject `.any` and `.tool`
+/// (forced tool use); for guaranteed JSON use `AnthropicClient.structured`.
 public enum ToolChoice: Sendable, Encodable, Equatable {
     case auto
     case any

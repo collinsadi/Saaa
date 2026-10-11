@@ -1,4 +1,5 @@
 import AppKit
+import Copilot
 import Core
 import DesignSystem
 import Persistence
@@ -562,9 +563,9 @@ private struct PlaybookEditor: View {
                             .help("Sent with each request and cached, so repeat answers cost little.")
                     }
                 }
-                if draft.knowledgeCharacters > 300_000 {
+                if draft.knowledgeCharacters > PromptComposer.defaultKnowledgeBudget {
                     Label(
-                        "That's a lot of material. The first answer of a call gets slower and each answer costs more. Keep what matters for these calls.",
+                        "Saaa reads the first \(PromptComposer.defaultKnowledgeBudget.formatted()) characters during a call, in the order listed. Keep what matters most at the top.",
                         systemImage: "exclamationmark.triangle")
                         .font(.system(size: 12))
                         .foregroundStyle(saaa.emberText)

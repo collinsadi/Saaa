@@ -105,14 +105,16 @@ struct SessionDetailView: View {
                 Text("· \(record.startedAt.formatted(date: .abbreviated, time: .shortened)) · \(max(1, Int((record.duration / 60).rounded()))) min")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 if record.usage.totalCostUSD > 0 {
                     Text("· \(UsageLedger.format(record.usage.totalCostUSD))")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .help("Claude usage for this session")
                 }
-                Spacer()
+                Spacer(minLength: Space.sm)
                 actions(record)
+                    .fixedSize()
             }
             Text(record.displayTitle)
                 .font(.system(size: 28, weight: .bold))

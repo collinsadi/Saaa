@@ -44,9 +44,13 @@ public struct PromptComposer: Sendable {
     /// Knowledge budget (characters) across all documents.
     public var knowledgeBudget: Int
 
+    /// About 60K tokens: room for real reference material while a long call
+    /// stays under Haiku's 100K long-context price step.
+    public static let defaultKnowledgeBudget = 240_000
+
     public init(
         playbook: Playbook, context: SessionContext,
-        linesPerChunk: Int = 12, settleDelay: TimeInterval = 6, knowledgeBudget: Int = 240_000
+        linesPerChunk: Int = 12, settleDelay: TimeInterval = 6, knowledgeBudget: Int = defaultKnowledgeBudget
     ) {
         self.playbook = playbook
         self.context = context

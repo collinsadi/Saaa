@@ -10,7 +10,6 @@ import SwiftUI
 final class HubPresenter {
 
     private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
     private let model: AppModel
 
     init(model: AppModel) {
@@ -19,7 +18,7 @@ final class HubPresenter {
 
     func show() {
         if let window {
-            NSApp.setActivationPolicy(.regular)
+            AppPresence.adopt(window)
             WindowFront.present(window)
             return
         }
@@ -36,12 +35,7 @@ final class HubPresenter {
         if window.frame.origin == .zero { window.center() }
         self.window = window
         ScreenPrivacy.shared.register(window, as: .hub)
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: window, queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { _ = NSApp.setActivationPolicy(.accessory) }
-        }
-        NSApp.setActivationPolicy(.regular)
+        AppPresence.adopt(window)
         WindowFront.present(window)
     }
 }

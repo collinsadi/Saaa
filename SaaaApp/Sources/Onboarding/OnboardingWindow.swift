@@ -19,6 +19,7 @@ final class OnboardingPresenter {
 
     func show(onFinish: @escaping @MainActor () -> Void) {
         if let window, window.isVisible {
+            AppPresence.adopt(window)
             WindowFront.present(window)
             return
         }
@@ -40,6 +41,7 @@ final class OnboardingPresenter {
         window.center()
         ScreenPrivacy.shared.register(window, as: .onboarding)
         self.window = window
+        AppPresence.adopt(window)
         WindowFront.present(window)
     }
 }

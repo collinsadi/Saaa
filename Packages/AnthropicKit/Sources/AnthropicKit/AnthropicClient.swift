@@ -38,7 +38,7 @@ public struct KeyCheck: Sendable, Equatable {
     public var latency: Duration
 }
 
-/// Claude Messages API client: SSE streaming, non-streaming, forced-tool
+/// Claude Messages API client: SSE streaming, non-streaming, JSON-schema
 /// structured output, key verification. Stateless and Sendable; the key is
 /// read per request so a key change applies immediately.
 public struct AnthropicClient: Sendable {

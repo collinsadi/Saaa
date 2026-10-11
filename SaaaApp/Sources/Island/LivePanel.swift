@@ -190,7 +190,15 @@ struct LivePanel: View {
     }
 
     private var statusNote: String? {
-        session.copilotOffReason ?? session.transcriptionNote ?? copilot?.notice
+        session.copilotOffReason ?? session.transcriptionNote ?? copilot?.notice ?? echoTip
+    }
+
+    /// On speakers the mic hears the other side. Saaa filters it out, and
+    /// once that's happening a lot it's worth a tip.
+    private var echoTip: String? {
+        session.onSpeakers || session.transcript.echoCount >= 3
+            ? "You're on speakers, so Saaa filters their voice out of your mic. Headphones give a cleaner transcript."
+            : nil
     }
 
     private func noteRow(_ note: String) -> some View {

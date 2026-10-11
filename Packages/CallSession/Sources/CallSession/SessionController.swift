@@ -48,6 +48,8 @@ public final class SessionController {
     /// Why the copilot is off (no API key), if it is.
     public private(set) var copilotOffReason: String?
     public private(set) var micMuted = false
+    /// The mic keeps hearing the other side: likely laptop speakers.
+    public private(set) var onSpeakers = false
     public private(set) var silencePromptVisible = false
 
     // MARK: After the call
@@ -141,6 +143,7 @@ public final class SessionController {
         transcriptionNote = nil
         copilotOffReason = nil
         micMuted = false
+        onSpeakers = false
         silencePromptVisible = false
         watchdog = SilenceWatchdog()
         ending = false
@@ -310,6 +313,9 @@ public final class SessionController {
         case .levels(let reading):
             levels = reading
             callTime = reading.time
+            if !onSpeakers, (transcriber?.echoFilteredSeconds ?? 0) > 10 {
+                onSpeakers = true
+            }
             switch watchdog.feed(mic: reading.mic.rms, system: reading.system.rms, at: reading.time) {
             case .quiet:
                 if silencePromptVisible { silencePromptVisible = false }

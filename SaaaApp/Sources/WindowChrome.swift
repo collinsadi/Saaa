@@ -16,3 +16,31 @@ enum WindowChrome {
         window.titlebarSeparatorStyle = .none
     }
 }
+
+/// Saaa is a menu-bar accessory until a regular window (the hub, setup) is
+/// open; then it gets a Dock icon and a place in the app switcher, and it
+/// goes back to the menu bar when the last such window closes.
+@MainActor
+enum AppPresence {
+    private static let identifier = NSUserInterfaceItemIdentifier("saaa.regular-window")
+    private static var observed: Set<ObjectIdentifier> = []
+
+    static func adopt(_ window: NSWindow) {
+        window.identifier = identifier
+        NSApp.setActivationPolicy(.regular)
+        let key = ObjectIdentifier(window)
+        guard observed.insert(key).inserted else { return }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { [weak window] _ in
+            MainActor.assumeIsolated {
+                let othersOpen = NSApp.windows.contains {
+                    $0 !== window && $0.isVisible && $0.identifier == identifier
+                }
+                if !othersOpen {
+                    NSApp.setActivationPolicy(.accessory)
+                }
+            }
+        }
+    }
+}
