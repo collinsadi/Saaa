@@ -20,7 +20,8 @@ It works with any call app: Zoom, Meet in a browser, Teams, FaceTime, Slack hudd
 - an answer card that streams in about a second, with one line you can say first and the facts behind it,
 - quick actions from the playbook (Answer, What to say, What to ask, Catch me up, plus extras like Handle objection), on ⌘1 to ⌘4,
 - an Ask field for anything else (⌥⌘K from any app, ⌘↩ to answer what they just asked),
-- a "They asked" chip when someone asks you a question, with one-tap or automatic answers,
+- **Look** (⌥⌘L, or the viewfinder by the Ask field): Saaa reads the window in front of you and answers with the call and the screen together. An error gets the fix, a coding problem gets the approach, and anything typed in Ask becomes your question about the screen,
+- a "They asked" chip when someone asks you a question, with one-tap or automatic answers; automatic answers can start before they finish asking,
 - live notes: key points, decisions, action items and open questions,
 - the live transcript, Me and Them, with words in progress shown lighter.
 
@@ -33,7 +34,8 @@ A playbook tells the copilot who you are on this kind of call: instructions in y
 ## Privacy and data flow
 
 - **Audio never leaves your Mac.** Your microphone and the call app's audio are captured as two separate streams and transcribed by Apple's on-device speech model.
-- **Only text goes to Claude, through your Saaa server.** You bring your own Anthropic key. It's sent once to the Saaa relay, a small server you host (see [Server](Server/README.md)), which checks it with Anthropic, encrypts it with AES-256-GCM and keeps it. This Mac stores only an access token, so nothing lives in the Keychain and there are no password prompts. When the copilot answers, writes notes, summarizes or answers Ask this call, transcript text, your playbook and your prep notes pass through the relay to Anthropic. The relay doesn't log or keep them. Nothing is sent while the copilot is idle.
+- **Only text goes to Claude, through your Saaa server.** You bring your own Anthropic key. It's sent once to the Saaa relay, a small server you host (see [Server](Server/README.md)), which checks it with Anthropic, encrypts it with AES-256-GCM and keeps it. This Mac stores only an access token, so nothing lives in the Keychain and there are no password prompts. When the copilot answers, writes notes, summarizes or answers Ask this call, transcript text, your playbook, your prep notes and, when you press Look, text read from your screen pass through the relay to Anthropic. The relay doesn't log or keep them. Nothing is sent while the copilot is idle.
+- **Look sends text, not pixels, and only when you ask.** Look takes one frame of the window in front, reads its text on this Mac with Apple's Vision, masks secrets such as API keys, tokens, private keys and passwords, and sends that text with the transcript. The image is never saved or sent. The text stays in memory so the panel can show exactly what was sent, and it isn't saved with the session. Look needs Screen Recording permission. When someone shares their screen, Look reads what you can see, so treat it like your notes and tell people.
 - **Encrypted at rest.** Transcripts, notes, summaries and playbooks are sealed with AES-GCM on this Mac, with a key kept in Saaa's own folder that only your macOS account can read. Audio files are deleted once the transcript is saved unless you choose to keep them.
 - **No telemetry.** Logs record state changes and error codes, never call content.
 - **Consent is visible.** A recording indicator is always on screen while Saaa records, and nothing starts without you. Saaa reminds you to tell people and gives you a line to paste into the chat. Recording laws vary by place; telling people is your responsibility.
@@ -88,19 +90,21 @@ cd Packages/AnthropicKit && SAAA_LIVE_API=1 ANTHROPIC_API_KEY=... swift test --f
 | ⌥⌘R | Start or stop a session, from any app |
 | ⌥⌘A | Answer what they just asked |
 | ⌥⌘K | Open the live panel with Ask focused |
+| ⌥⌘L | Look at your screen (during a session) |
 | ⌘1 to ⌘4 | Quick actions, in the live panel |
 | ⌘↩ | In the Ask field: answer the latest question |
 
 ## Project layout
 
-One app target over nine local Swift packages, Swift 6 with strict concurrency throughout:
+One app target over ten local Swift packages, Swift 6 with strict concurrency throughout:
 
 | Package | Role |
 |---|---|
-| Core | Transcript, playbook, summary and usage models; question detection; redaction; Screen Privacy policy |
+| Core | Transcript, playbook, summary, usage and screen-snapshot models; question detection; redaction of exports and screen text; Screen Privacy policy |
 | AnthropicKit | Streaming Messages API client, structured output, model catalog and pricing, Saaa relay connection |
 | AudioCapture | Core Audio process taps and microphone capture, lock-free hot path, live 16 kHz sample stream |
 | Transcription | SpeechAnalyzer lanes per side, live transcript with echo guard, speech asset install, file transcription |
+| ScreenContext | Look: front-window capture, on-device text recognition and layout, scene detection |
 | Copilot | Cache-shaped prompt composer, copilot engine, live notes, summaries, Ask this call |
 | CallSession | Session lifecycle, global hotkeys, meeting detection, imports |
 | CalendarContext | EventKit reader for current and upcoming meetings |
