@@ -34,6 +34,26 @@ public enum ScreenSource: String, Sendable, Codable, Equatable {
     case editor
 }
 
+/// One picture of a window, sent only when the user presses Send image:
+/// downscaled, with every line Saaa could read as a secret blacked out.
+/// It lives in memory with its snapshot and is never written to disk.
+public struct ScreenImage: Sendable, Equatable {
+    public var data: Data
+    public var mediaType: String
+    public var width: Int
+    public var height: Int
+    /// Lines blacked out because they held something secret-looking.
+    public var maskedRegions: Int
+
+    public init(data: Data, mediaType: String, width: Int, height: Int, maskedRegions: Int = 0) {
+        self.data = data
+        self.mediaType = mediaType
+        self.width = width
+        self.height = height
+        self.maskedRegions = maskedRegions
+    }
+}
+
 /// The text Saaa read from one window, on this Mac, after redaction. It is
 /// exactly what a Look sends to Claude: the screenshot itself never leaves
 /// the capture call, and this text is kept in memory only, never sealed.
@@ -49,10 +69,13 @@ public struct ScreenSnapshot: Sendable, Equatable {
     public var truncated: Bool
     public var capturedAt: Date
     public var source: ScreenSource
+    /// The window's picture, only for a Look the user sent with an image.
+    public var image: ScreenImage?
 
     public init(
         appName: String, windowTitle: String? = nil, text: String, scene: ScreenScene,
-        redactions: Int = 0, truncated: Bool = false, capturedAt: Date = .now, source: ScreenSource = .window
+        redactions: Int = 0, truncated: Bool = false, capturedAt: Date = .now, source: ScreenSource = .window,
+        image: ScreenImage? = nil
     ) {
         self.appName = appName
         self.windowTitle = windowTitle
@@ -62,6 +85,7 @@ public struct ScreenSnapshot: Sendable, Equatable {
         self.truncated = truncated
         self.capturedAt = capturedAt
         self.source = source
+        self.image = image
     }
 
     /// "Xcode · PromptComposer.swift", or just the app.

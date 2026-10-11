@@ -42,7 +42,8 @@ public enum ScreenLook {
 
     /// Reads the frontmost window. `frontmostPID` is the active app, read
     /// on the main actor by the caller; `excludingPID` is Saaa itself.
-    public static func snapshot(frontmostPID: pid_t?, excludingPID: pid_t) async throws -> ScreenSnapshot {
+    /// `withImage` keeps one masked picture of the window for Send image.
+    public static func snapshot(frontmostPID: pid_t?, excludingPID: pid_t, withImage: Bool = false) async throws -> ScreenSnapshot {
         guard CGPreflightScreenCaptureAccess() else {
             // Shows the system prompt the first time; the grant takes
             // effect after Saaa restarts.
@@ -60,18 +61,37 @@ public enum ScreenLook {
         } catch {
             throw ScreenReadError.failed(String(describing: type(of: error)))
         }
-        return try snapshot(of: captured.image, appName: target.ownerName, windowTitle: captured.title)
+        return try snapshot(of: captured.image, appName: target.ownerName, windowTitle: captured.title, withImage: withImage)
     }
 
     /// A Look at an image already in hand: on-device OCR, then `compose`.
-    public static func snapshot(of image: CGImage, appName: String, windowTitle: String? = nil) throws -> ScreenSnapshot {
+    /// With `withImage`, a window with no readable text still goes as a
+    /// picture.
+    public static func snapshot(
+        of image: CGImage, appName: String, windowTitle: String? = nil, withImage: Bool = false
+    ) throws -> ScreenSnapshot {
         let fragments: [TextFragment]
         do {
             fragments = try ScreenTextRecognizer.fragments(in: image)
         } catch {
             throw ScreenReadError.failed(String(describing: type(of: error)))
         }
-        return try compose(fragments: fragments, appName: appName, windowTitle: windowTitle)
+        var snapshot: ScreenSnapshot
+        do {
+            snapshot = try compose(fragments: fragments, appName: appName, windowTitle: windowTitle)
+        } catch ScreenReadError.nothingReadable where withImage {
+            snapshot = ScreenSnapshot(
+                appName: appName.isEmpty ? "Screen" : appName,
+                windowTitle: windowTitle.map { SecretRedactor.redact($0).text },
+                text: "(no readable text)", scene: .other)
+        }
+        if withImage {
+            guard let picture = ScreenImageEncoder.encode(image, masking: ScreenImageEncoder.secretBoxes(fragments)) else {
+                throw ScreenReadError.failed("image")
+            }
+            snapshot.image = picture
+        }
+        return snapshot
     }
 
     /// The pure end of a Look: layout, redaction, the size cap, the scene.

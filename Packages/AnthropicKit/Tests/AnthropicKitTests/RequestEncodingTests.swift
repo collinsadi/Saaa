@@ -25,6 +25,16 @@ import Testing
         #expect(Self.cached.cacheBreakpointCount == 2)
     }
 
+    @Test func encodesImageBlocksAsBase64Sources() throws {
+        let request = MessageRequest(
+            model: "claude-haiku-5-5", maxTokens: 100,
+            messages: [Message(role: .user, content: [.image(Data([0xFF, 0xD8, 0xFF]), mediaType: "image/jpeg"), .plain("What is this?")])])
+        let json = String(decoding: try request.encodedBody(), as: UTF8.self)
+        #expect(json.contains(#"{"source":{"data":"/9j/","media_type":"image/jpeg","type":"base64"},"type":"image"}"#))
+        let decoded = try JSONDecoder().decode(ContentBlock.self, from: Data(#"{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AA=="}}"#.utf8))
+        #expect(decoded == .image(mediaType: "image/png", base64: "AA=="))
+    }
+
     @Test func encodingIsDeterministic() throws {
         let schema: JSONValue = [
             "type": "object",

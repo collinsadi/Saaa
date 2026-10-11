@@ -165,10 +165,17 @@ public enum ContentBlock: Sendable, Codable, Equatable {
     case text(TextBlock)
     case toolUse(id: String, name: String, input: JSONValue)
     case toolResult(toolUseID: String, content: String, isError: Bool)
+    /// A base64 image (`image/jpeg`, `image/png`, `image/gif` or `image/webp`).
+    case image(mediaType: String, base64: String)
 
     /// A text block, optionally carrying a cache breakpoint.
     public static func plain(_ string: String, cache: CacheControl? = nil) -> ContentBlock {
         .text(TextBlock(string, cacheControl: cache))
+    }
+
+    /// An image block from encoded image bytes.
+    public static func image(_ data: Data, mediaType: String) -> ContentBlock {
+        .image(mediaType: mediaType, base64: data.base64EncodedString())
     }
 
     var hasCacheControl: Bool {
@@ -177,10 +184,15 @@ public enum ContentBlock: Sendable, Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case type, text, id, name, input, content
+        case type, text, id, name, input, content, source
         case cacheControl = "cache_control"
         case toolUseID = "tool_use_id"
         case isError = "is_error"
+    }
+
+    enum SourceKeys: String, CodingKey {
+        case type, data
+        case mediaType = "media_type"
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,6 +211,11 @@ public enum ContentBlock: Sendable, Codable, Equatable {
                 toolUseID: try container.decode(String.self, forKey: .toolUseID),
                 content: (try? container.decode(String.self, forKey: .content)) ?? "",
                 isError: (try? container.decode(Bool.self, forKey: .isError)) ?? false)
+        case "image":
+            let source = try container.nestedContainer(keyedBy: SourceKeys.self, forKey: .source)
+            self = .image(
+                mediaType: try source.decode(String.self, forKey: .mediaType),
+                base64: try source.decode(String.self, forKey: .data))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type, in: container, debugDescription: "Unsupported block \(type)")
@@ -221,6 +238,13 @@ public enum ContentBlock: Sendable, Codable, Equatable {
             try container.encode(toolUseID, forKey: .toolUseID)
             try container.encode(content, forKey: .content)
             if isError { try container.encode(true, forKey: .isError) }
+        case .image(let mediaType, let base64):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("image", forKey: .type)
+            var source = container.nestedContainer(keyedBy: SourceKeys.self, forKey: .source)
+            try source.encode("base64", forKey: .type)
+            try source.encode(mediaType, forKey: .mediaType)
+            try source.encode(base64, forKey: .data)
         }
     }
 }

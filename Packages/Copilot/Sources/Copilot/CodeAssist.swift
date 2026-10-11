@@ -128,6 +128,16 @@ public enum CodeAssistSettings {
     }
 }
 
+/// Send image: off until the user turns it on; then each Look can carry one
+/// picture of the window when the user presses Send image.
+public enum LookSettings {
+    public static let sendImageKey = "look.sendImage"
+
+    public static func sendsImages(_ defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: sendImageKey)
+    }
+}
+
 /// Code Assist runs outside sessions, so its cost goes into a small monthly
 /// total: a number per month, no content.
 public enum CodeAssistUsage {
@@ -166,11 +176,14 @@ public enum CodePromptComposer {
     ) -> MessageRequest {
         let text = PromptComposer.screenBlock(snapshot) + "\n\n"
             + task(scene: snapshot.scene, question: question, rung: rung, cap: cap)
+        var content: [ContentBlock] = []
+        if let image = snapshot.image { content.append(.image(image.data, mediaType: image.mediaType)) }
+        content.append(.plain(text))
         return MessageRequest(
             model: model,
             maxTokens: maxTokens(scene: snapshot.scene, question: question, rung: rung),
             system: [TextBlock(system)],
-            messages: [.user(text)],
+            messages: [Message(role: .user, content: content)],
             thinking: .disabled)
     }
 
@@ -277,6 +290,7 @@ public final class CodeAssistEngine {
     @ObservationIgnored private let service: any ClaudeService
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let screenReader: @MainActor () async throws -> ScreenSnapshot
+    @ObservationIgnored private let imageReader: (@MainActor () async throws -> ScreenSnapshot)?
     @ObservationIgnored private let environment: @MainActor () -> WatchEnvironment
     @ObservationIgnored private let isCallLive: @MainActor () -> Bool
     @ObservationIgnored private let prewarm: @MainActor () -> Void
@@ -308,6 +322,7 @@ public final class CodeAssistEngine {
         service: any ClaudeService,
         defaults: UserDefaults = .standard,
         screenReader: @escaping @MainActor () async throws -> ScreenSnapshot,
+        imageReader: (@MainActor () async throws -> ScreenSnapshot)? = nil,
         environment: @escaping @MainActor () -> WatchEnvironment,
         isCallLive: @escaping @MainActor () -> Bool,
         prewarm: @escaping @MainActor () -> Void = {},
@@ -317,6 +332,7 @@ public final class CodeAssistEngine {
         self.service = service
         self.defaults = defaults
         self.screenReader = screenReader
+        self.imageReader = imageReader
         self.environment = environment
         self.isCallLive = isCallLive
         self.prewarm = prewarm
@@ -332,13 +348,23 @@ public final class CodeAssistEngine {
 
     // MARK: - Intents
 
+    /// Send image is on in Settings and a picture can be captured.
+    public var canSendImage: Bool { imageReader != nil && LookSettings.sendsImages(defaults) }
+
     /// Reads the front window now and answers for its scene. Text from the
-    /// panel's Ask field becomes the question.
-    public func look(question: String? = nil) {
+    /// panel's Ask field becomes the question. With `withImage` (Send
+    /// image), one masked picture of the window goes too.
+    public func look(question: String? = nil, withImage: Bool = false) {
         guard !isReading else { return }
         let trimmed = question?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let asked: String? = trimmed.isEmpty ? nil : trimmed
-        let reader = screenReader
+        let reader: @MainActor () async throws -> ScreenSnapshot
+        if withImage {
+            guard canSendImage, let imageReader else { return }
+            reader = imageReader
+        } else {
+            reader = screenReader
+        }
         isReading = true
         notice = nil
         lookTask = Task { [weak self] in

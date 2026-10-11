@@ -53,6 +53,8 @@ public final class CopilotEngine {
     @ObservationIgnored private let transcript: @MainActor () -> LiveTranscript
     @ObservationIgnored private let callTime: @MainActor () -> TimeInterval
     @ObservationIgnored private let screenReader: (@MainActor () async throws -> ScreenSnapshot)?
+    /// Reads the window with one masked picture of it, for Send image.
+    @ObservationIgnored private let imageReader: (@MainActor () async throws -> ScreenSnapshot)?
     @ObservationIgnored private var lookTask: Task<Void, Never>?
     /// An answer started from in-progress words, before their line was final.
     @ObservationIgnored private var early: (question: String, id: UUID)?
@@ -85,7 +87,8 @@ public final class CopilotEngine {
         defaults: UserDefaults = .standard,
         transcript: @escaping @MainActor () -> LiveTranscript,
         callTime: @escaping @MainActor () -> TimeInterval,
-        screenReader: (@MainActor () async throws -> ScreenSnapshot)? = nil
+        screenReader: (@MainActor () async throws -> ScreenSnapshot)? = nil,
+        imageReader: (@MainActor () async throws -> ScreenSnapshot)? = nil
     ) {
         self.playbook = playbook
         self.context = context
@@ -94,6 +97,7 @@ public final class CopilotEngine {
         self.transcript = transcript
         self.callTime = callTime
         self.screenReader = screenReader
+        self.imageReader = imageReader
         self.autoSuggestEnabled = playbook.autoSuggest
         self.liveNotesEnabled = playbook.liveNotes
         self.composer = PromptComposer(playbook: playbook, context: context)
@@ -108,6 +112,9 @@ public final class CopilotEngine {
 
     /// This session can read the screen.
     public var canLook: Bool { screenReader != nil }
+
+    /// Send image is on in Settings and this session can capture a picture.
+    public var canSendImage: Bool { imageReader != nil && LookSettings.sendsImages(defaults) }
 
     // MARK: - User intents
 
@@ -144,8 +151,18 @@ public final class CopilotEngine {
     /// call and the screen together. `question` comes from the Ask field.
     /// The screen text rides in the request's uncached tail and stays in
     /// memory for What was sent; it is never sealed with the session.
-    public func look(question: String? = nil) {
-        guard !finished, let screenReader, !isLooking else { return }
+    /// With `withImage` (Send image, only when it's on in Settings), one
+    /// picture of the window goes too, secret-looking lines blacked out.
+    public func look(question: String? = nil, withImage: Bool = false) {
+        guard !finished, !isLooking else { return }
+        let reader: (@MainActor () async throws -> ScreenSnapshot)?
+        if withImage {
+            guard canSendImage else { return }
+            reader = imageReader
+        } else {
+            reader = screenReader
+        }
+        guard let screenReader = reader else { return }
         let trimmed = question?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let asked: String? = trimmed.isEmpty ? nil : trimmed
         isLooking = true
@@ -166,7 +183,7 @@ public final class CopilotEngine {
                 self.screenPermissionNeeded = false
                 let id = self.start(
                     .look(snapshot, question: asked), kind: .action, actionID: Self.lookActionID,
-                    title: "Look", prompt: asked ?? snapshot.sourceLabel)
+                    title: snapshot.image == nil ? "Look" : "Look with image", prompt: asked ?? snapshot.sourceLabel)
                 if let id { self.screenSnapshots[id] = snapshot }
             case .failure(let error):
                 self.screenPermissionNeeded = error == .permissionNeeded

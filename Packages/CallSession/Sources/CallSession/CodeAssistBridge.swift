@@ -8,8 +8,8 @@ public enum CodeAssistBridge {
 
     /// A Look outside a call: the same read a call's Look makes.
     @MainActor
-    public static func readScreen() async throws -> ScreenSnapshot {
-        try await SessionController.readScreen()
+    public static func readScreen(withImage: Bool = false) async throws -> ScreenSnapshot {
+        try await SessionController.readScreen(withImage: withImage)
     }
 
     /// What Watch checks each tick: the app in front, its front window and

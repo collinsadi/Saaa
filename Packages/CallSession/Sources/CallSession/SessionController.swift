@@ -294,7 +294,8 @@ public final class SessionController {
                 playbook: playbook, context: context, service: client, defaults: defaults,
                 transcript: { [weak self] in self?.transcript ?? LiveTranscript() },
                 callTime: { [weak self] in self?.callTime ?? 0 },
-                screenReader: { try await Self.readScreen() })
+                screenReader: { try await Self.readScreen() },
+                imageReader: { try await Self.readScreen(withImage: true) })
             copilot = engine
             engine.prewarm()
             if ScreenLook.hasPermission { ScreenLook.prewarm() }
@@ -313,17 +314,19 @@ public final class SessionController {
     /// panels never activate, so the user's app stays frontmost. An editor
     /// with the Saaa extension answers with exact text; anything else, or
     /// an editor that doesn't answer in time, is read from the screen.
-    static func readScreen() async throws -> ScreenSnapshot {
+    /// Send image (`withImage`) always reads the window itself: a picture
+    /// needs pixels, not the editor's text.
+    static func readScreen(withImage: Bool = false) async throws -> ScreenSnapshot {
         let front = NSWorkspace.shared.frontmostApplication
         let me = ProcessInfo.processInfo.processIdentifier
-        if let front, front.processIdentifier != me {
+        if !withImage, let front, front.processIdentifier != me {
             let title = ScreenLook.frontWindowTitle(frontmostPID: front.processIdentifier, excludingPID: me)
             if let exact = await EditorLook.snapshot(
                 appPID: front.processIdentifier, bundleID: front.bundleIdentifier, windowTitle: title) {
                 return exact
             }
         }
-        return try await ScreenLook.snapshot(frontmostPID: front?.processIdentifier, excludingPID: me)
+        return try await ScreenLook.snapshot(frontmostPID: front?.processIdentifier, excludingPID: me, withImage: withImage)
     }
 
     // MARK: - Feeds
