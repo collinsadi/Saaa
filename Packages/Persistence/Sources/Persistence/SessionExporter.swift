@@ -73,6 +73,12 @@ public enum SessionExporter {
             }
             list("Open questions", summary.openQuestions)
             for section in summary.sections { list(section.title, section.bullets) }
+            // Coaching feedback stays out of exports; the checklist goes in.
+            if let checklist = summary.checklist {
+                list("Checklist", checklist.map { result in
+                    (result.covered ? "✓ " : "○ ") + result.item + (result.evidence.isEmpty ? "" : ": \(result.evidence)")
+                })
+            }
             if let email = summary.followUpEmail {
                 body += "<section><h2>Follow-up email draft</h2><pre>\(clean(email))</pre></section>"
             }

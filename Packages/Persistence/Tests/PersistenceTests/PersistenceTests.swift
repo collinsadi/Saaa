@@ -188,6 +188,31 @@ func sampleRecord(title: String = "Acme renewal", minutesAgo: Double = 10) -> Se
         #expect(html.hasPrefix("<!DOCTYPE html>"))
     }
 
+    @Test func exportsCarryTheChecklistButNotTheCoaching() {
+        var record = sampleRecord()
+        record.summary?.checklist = [ChecklistResult(item: "Budget", covered: true, evidence: "Approved"), ChecklistResult(item: "Timeline", covered: false)]
+        record.summary?.coaching = CoachingFeedback(wentWell: ["Strong opener"], tryNext: ["Pause more"])
+        let html = SessionExporter.html(record)
+        #expect(html.contains("<li>✓ Budget: Approved</li>"))
+        #expect(html.contains("<li>○ Timeline</li>"))
+        #expect(!html.contains("Pause more"))
+        let markdown = SessionExporter.markdown(record)
+        #expect(markdown.contains("- [x] Budget: Approved"))
+        #expect(!markdown.contains("Strong opener"))
+    }
+
+    @Test func recordsSealedBeforeCoachingStillOpen() throws {
+        var record = sampleRecord()
+        record.notes = LiveNotes(keyPoints: ["k"])
+        var object = try #require(try JSONSerialization.jsonObject(with: try JSONEncoder().encode(record)) as? [String: Any])
+        var notes = try #require(object["notes"] as? [String: Any])
+        notes["covered"] = nil
+        object["notes"] = notes
+        let decoded = try JSONDecoder().decode(SessionRecord.self, from: try JSONSerialization.data(withJSONObject: object))
+        #expect(decoded.notes?.keyPoints == ["k"])
+        #expect(decoded.summary?.checklist == nil)
+    }
+
     @Test func fileNamesAreSafe() {
         var record = sampleRecord()
         record.summary?.title = "Acme / Saaa: Q3 plan?"

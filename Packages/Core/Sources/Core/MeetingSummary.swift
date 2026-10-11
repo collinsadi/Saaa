@@ -40,13 +40,19 @@ public struct MeetingSummary: Sendable, Codable, Equatable {
     /// Playbook-specific sections (Sales: pains, budget...).
     public var sections: [Section]
     public var followUpEmail: String?
+    /// What went well and what to try next time; nil when the playbook
+    /// doesn't coach (and for summaries written before coaching existed).
+    public var coaching: CoachingFeedback?
+    /// The playbook's checklist, item by item; nil when it has none.
+    public var checklist: [ChecklistResult]?
     public var generatedAt: Date
     public var model: String
 
     public init(
         title: String, tldr: String, keyPoints: [String] = [], decisions: [String] = [],
         actionItems: [ActionItem] = [], openQuestions: [String] = [], sections: [Section] = [],
-        followUpEmail: String? = nil, generatedAt: Date = .now, model: String = ""
+        followUpEmail: String? = nil, coaching: CoachingFeedback? = nil, checklist: [ChecklistResult]? = nil,
+        generatedAt: Date = .now, model: String = ""
     ) {
         self.title = title
         self.tldr = tldr
@@ -56,6 +62,8 @@ public struct MeetingSummary: Sendable, Codable, Equatable {
         self.openQuestions = openQuestions
         self.sections = sections
         self.followUpEmail = followUpEmail.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        self.coaching = coaching.flatMap { $0.isEmpty ? nil : $0 }
+        self.checklist = checklist.flatMap { $0.isEmpty ? nil : $0 }
         self.generatedAt = generatedAt
         self.model = model
     }
@@ -91,11 +99,51 @@ public struct MeetingSummary: Sendable, Codable, Equatable {
         }
         list("Open questions", openQuestions)
         for section in sections { list(section.title, section.bullets) }
+        // Coaching stays out of copies and exports: it's feedback for me.
+        if let checklist {
+            lines.append("## Checklist")
+            for result in checklist {
+                var line = "- [\(result.covered ? "x" : " ")] \(result.item)"
+                if !result.evidence.isEmpty { line += ": \(result.evidence)" }
+                lines.append(line)
+            }
+            lines.append("")
+        }
         if let followUpEmail {
             lines += ["## Follow-up email draft", "", followUpEmail, ""]
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
     }
+}
+
+/// Feedback on how the user ran the call, grounded in the transcript and
+/// the speaking stats.
+public struct CoachingFeedback: Sendable, Codable, Equatable {
+    public var wentWell: [String]
+    public var tryNext: [String]
+
+    public init(wentWell: [String] = [], tryNext: [String] = []) {
+        self.wentWell = wentWell
+        self.tryNext = tryNext
+    }
+
+    public var isEmpty: Bool { wentWell.isEmpty && tryNext.isEmpty }
+}
+
+/// One checklist item after the call: covered or not, and where.
+public struct ChecklistResult: Sendable, Codable, Equatable, Hashable, Identifiable {
+    public var item: String
+    public var covered: Bool
+    /// What was said, briefly; empty when it wasn't covered.
+    public var evidence: String
+
+    public init(item: String, covered: Bool, evidence: String = "") {
+        self.item = item
+        self.covered = covered
+        self.evidence = evidence
+    }
+
+    public var id: String { item }
 }
 
 /// Running notes the copilot keeps during the call.
@@ -104,20 +152,39 @@ public struct LiveNotes: Sendable, Codable, Equatable {
     public var decisions: [String]
     public var actionItems: [String]
     public var openQuestions: [String]
+    /// Checklist items the conversation has covered so far.
+    public var covered: [String]
     /// Call time (seconds) the notes cover up to.
     public var coveredUntil: TimeInterval
     public var updatedAt: Date
 
     public init(
         keyPoints: [String] = [], decisions: [String] = [], actionItems: [String] = [],
-        openQuestions: [String] = [], coveredUntil: TimeInterval = 0, updatedAt: Date = .now
+        openQuestions: [String] = [], covered: [String] = [], coveredUntil: TimeInterval = 0, updatedAt: Date = .now
     ) {
         self.keyPoints = keyPoints
         self.decisions = decisions
         self.actionItems = actionItems
         self.openQuestions = openQuestions
+        self.covered = covered
         self.coveredUntil = coveredUntil
         self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case keyPoints, decisions, actionItems, openQuestions, covered, coveredUntil, updatedAt
+    }
+
+    /// Notes sealed before the checklist existed have no `covered`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        keyPoints = try container.decode([String].self, forKey: .keyPoints)
+        decisions = try container.decode([String].self, forKey: .decisions)
+        actionItems = try container.decode([String].self, forKey: .actionItems)
+        openQuestions = try container.decode([String].self, forKey: .openQuestions)
+        covered = try container.decodeIfPresent([String].self, forKey: .covered) ?? []
+        coveredUntil = try container.decode(TimeInterval.self, forKey: .coveredUntil)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
     }
 
     public var isEmpty: Bool {
@@ -125,14 +192,31 @@ public struct LiveNotes: Sendable, Codable, Equatable {
     }
 
     /// The notes in the plain heading format the model reads and writes.
-    public var plainText: String {
+    public var plainText: String { plainText(withChecklist: false) }
+
+    /// With a checklist, the notes also carry a COVERED heading.
+    public func plainText(withChecklist: Bool) -> String {
         func block(_ heading: String, _ items: [String]) -> String {
             "\(heading):\n" + (items.isEmpty ? "- (none)" : items.map { "- \($0)" }.joined(separator: "\n"))
         }
-        return [
+        var blocks = [
             block("KEY POINTS", keyPoints), block("DECISIONS", decisions),
             block("ACTION ITEMS", actionItems), block("OPEN QUESTIONS", openQuestions),
-        ].joined(separator: "\n\n")
+        ]
+        if withChecklist { blocks.append(block("COVERED", covered)) }
+        return blocks.joined(separator: "\n\n")
+    }
+
+    /// The checklist items covered so far, matched to the checklist's own
+    /// wording; the model's spelling may differ in case or punctuation.
+    public func coveredItems(of checklist: [String]) -> Set<String> {
+        let said = Set(covered.map(Self.normalized))
+        return Set(checklist.filter { said.contains(Self.normalized($0)) })
+    }
+
+    static func normalized(_ text: String) -> String {
+        text.lowercased().filter { $0.isLetter || $0.isNumber || $0 == " " }
+            .split(separator: " ").joined(separator: " ")
     }
 
     /// Parses the heading format back; tolerant of markdown decoration and
@@ -149,6 +233,7 @@ public struct LiveNotes: Sendable, Codable, Equatable {
             case "DECISIONS": current = \.decisions; recognized = true; continue
             case "ACTION ITEMS": current = \.actionItems; recognized = true; continue
             case "OPEN QUESTIONS": current = \.openQuestions; recognized = true; continue
+            case "COVERED": current = \.covered; recognized = true; continue
             default: break
             }
             guard let key = current, line.hasPrefix("-") || line.hasPrefix("•") || line.hasPrefix("*") else { continue }

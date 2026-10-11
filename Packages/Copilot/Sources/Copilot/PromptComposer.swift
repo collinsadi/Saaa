@@ -247,14 +247,25 @@ public struct PromptComposer: Sendable {
         model: String
     ) -> MessageRequest {
         let blocks = transcriptBlocks(transcript, now: now)
-        let current = previous?.plainText ?? LiveNotes().plainText
-        let tail = blocks.tail + """
+        let checklist = playbook.checklistItems
+        let current = (previous ?? LiveNotes()).plainText(withChecklist: !checklist.isEmpty)
+        var tail = blocks.tail + """
 
 
         ---
         Task: Update the running notes for this call. Keep every still-relevant item from the \
         current notes, correct anything the conversation changed, and add what's new. Short \
         fragments with exact names, numbers and owners. At most 8 items per heading.
+        """
+        if !checklist.isEmpty {
+            tail += """
+             Under COVERED, list the items from my checklist the conversation has clearly covered \
+            so far, copied exactly from this list: \(checklist.map { "\"\($0)\"" }.joined(separator: ", ")). \
+            Keep items already covered.
+            """
+        }
+        tail += """
+
 
         Current notes:
         \(current)
@@ -269,6 +280,9 @@ public struct PromptComposer: Sendable {
         OPEN QUESTIONS:
         - item
         """
+        if !checklist.isEmpty {
+            tail += "\nCOVERED:\n- checklist item"
+        }
         return MessageRequest(
             model: model,
             maxTokens: 900,
@@ -324,6 +338,18 @@ public struct PromptComposer: Sendable {
         } else {
             task += "\n- follow_up_email: return an empty string."
         }
+        let checklist = playbook.checklistItems
+        if checklist.isEmpty {
+            task += "\n- checklist: return an empty array."
+        } else {
+            task += "\n- checklist: exactly these items, in order: \(checklist.map { "\"\($0)\"" }.joined(separator: ", ")). For each, covered is true only if the conversation clearly covered it, and evidence is a short quote or paraphrase of where (empty when not covered)."
+        }
+        if playbook.coaches, !transcript.segments.isEmpty {
+            let stats = CallCoach.stats(transcript.segments)
+            task += "\n- coaching: feedback for me on how I ran this call, from the transcript and these measured stats: \(stats.promptLine) went_well: 1 to 3 specific things I did well. try_next: 1 to 3 specific, kind changes for next time, each tied to a moment in the call. Don't repeat the stats back; use them only where they matter."
+        } else {
+            task += "\n- coaching: return empty arrays."
+        }
         task += "\nNever invent facts, numbers or owners that weren't said."
         let request = MessageRequest(
             model: model,
@@ -353,6 +379,15 @@ public struct PromptComposer: Sendable {
             "open_questions": strings,
             "sections": .array(of: section),
             "follow_up_email": .string(described: "Plain-text email, or empty"),
+            "checklist": .array(of: .strictObject([
+                "item": .string(),
+                "covered": ["type": "boolean"],
+                "evidence": .string(described: "Where it was covered, briefly, or empty"),
+            ])),
+            "coaching": .strictObject([
+                "went_well": strings,
+                "try_next": strings,
+            ]),
         ])
     }()
 
@@ -375,6 +410,16 @@ public struct PromptComposer: Sendable {
                 return MeetingSummary.Section(title: title, bullets: section["bullets"]?.stringArray ?? [])
             },
             followUpEmail: value["follow_up_email"]?.stringValue,
+            coaching: CoachingFeedback(
+                wentWell: value["coaching"]?["went_well"]?.stringArray ?? [],
+                tryNext: value["coaching"]?["try_next"]?.stringArray ?? []),
+            checklist: (value["checklist"]?.arrayValue ?? []).compactMap { entry in
+                guard let item = entry["item"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !item.isEmpty else { return nil }
+                return ChecklistResult(
+                    item: item, covered: entry["covered"]?.boolValue ?? false,
+                    evidence: entry["evidence"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            },
             generatedAt: .now,
             model: model)
     }

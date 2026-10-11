@@ -42,7 +42,7 @@ extension Playbook {
     public static let generalID = "builtin.general"
     public static let pairingID = "builtin.pairing"
 
-    /// The eight playbooks Saaa ships with. Users duplicate and edit them.
+    /// The nine playbooks Saaa ships with. Users duplicate and edit them.
     public static let builtIns: [Playbook] = [
         general, sales, customerSuccess, recruiting, investor, standup, pairProgramming, oneOnOne, learning,
     ]

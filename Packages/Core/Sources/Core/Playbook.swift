@@ -29,6 +29,12 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
     /// How Look treats code on screen; nil means the built-in default for
     /// this id (playbooks saved before lenses existed decode as nil).
     public var screenLens: ScreenLens?
+    /// Live speaking stats, the "you've been talking a while" nudge and
+    /// feedback in the summary; nil means the built-in default for this id.
+    public var coaching: Bool?
+    /// What the user wants to cover on this kind of call ("Budget",
+    /// "Next step agreed"); nil means the built-in default for this id.
+    public var checklist: [String]?
     public var isBuiltIn: Bool
     public var updatedAt: Date
 
@@ -37,8 +43,8 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         instructions: String, quickActions: [QuickAction], vocabulary: [String] = [],
         knowledge: [KnowledgeItem] = [], summarySections: [String] = [],
         draftsFollowUpEmail: Bool = false, autoSuggest: Bool = false, liveNotes: Bool = true,
-        titleKeywords: [String] = [], screenLens: ScreenLens? = nil, isBuiltIn: Bool = false,
-        updatedAt: Date = .now
+        titleKeywords: [String] = [], screenLens: ScreenLens? = nil, coaching: Bool? = nil,
+        checklist: [String]? = nil, isBuiltIn: Bool = false, updatedAt: Date = .now
     ) {
         self.id = id
         self.name = name
@@ -55,6 +61,8 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         self.liveNotes = liveNotes
         self.titleKeywords = titleKeywords
         self.screenLens = screenLens
+        self.coaching = coaching
+        self.checklist = checklist
         self.isBuiltIn = isBuiltIn
         self.updatedAt = updatedAt
     }
@@ -62,6 +70,10 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
     /// An editable copy that is no longer a built-in.
     public func duplicated(named newName: String? = nil) -> Playbook {
         var copy = self
+        // Defaults follow the id, so a copy keeps them explicitly.
+        copy.screenLens = lens
+        copy.coaching = coaches
+        copy.checklist = checklistItems
         copy.id = "custom.\(UUID().uuidString)"
         copy.name = newName ?? "\(name) copy"
         copy.isBuiltIn = false
@@ -79,6 +91,41 @@ public struct Playbook: Sendable, Codable, Equatable, Identifiable, Hashable {
         case "builtin.recruiting": .interviewer
         case pairingID: .pairProgramming
         default: .standard
+        }
+    }
+
+    /// Whether Saaa coaches the user on this kind of call.
+    public var coaches: Bool {
+        coaching ?? Self.defaultCoaching(for: id)
+    }
+
+    /// The items to cover, trimmed, without blanks or repeats.
+    public var checklistItems: [String] {
+        var seen = Set<String>()
+        return (checklist ?? Self.defaultChecklist(for: id))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    }
+
+    /// Calls where the user does much of the talking and wants to get better at it.
+    public static func defaultCoaching(for id: String) -> Bool {
+        ["builtin.sales", "builtin.success", "builtin.recruiting", "builtin.investor", "builtin.oneonone"].contains(id)
+    }
+
+    public static func defaultChecklist(for id: String) -> [String] {
+        switch id {
+        case "builtin.sales":
+            ["Their main pain", "Budget", "Decision maker", "Timeline", "Next step agreed"]
+        case "builtin.success":
+            ["Goals since last call", "Adoption and usage", "Risks or blockers", "Renewal or expansion", "Next step agreed"]
+        case "builtin.recruiting":
+            ["Role and team explained", "Past work probed", "Technical depth checked", "Their questions answered", "Next steps explained"]
+        case "builtin.investor":
+            ["Problem and why now", "Traction", "Business model", "The ask", "Next step agreed"]
+        case "builtin.oneonone":
+            ["Wins since last time", "Blockers", "Feedback both ways", "Growth and goals"]
+        default:
+            []
         }
     }
 

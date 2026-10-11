@@ -35,6 +35,8 @@ public final class SessionController {
 
     public private(set) var phase: Phase = .idle
     public private(set) var transcript = LiveTranscript()
+    /// My speaking stats so far, measured on the Mac as lines are committed.
+    public private(set) var coaching = CoachingStats()
     public private(set) var levels: CaptureLevels?
     /// Seconds since capture started (the transcript's timeline).
     public private(set) var callTime: TimeInterval = 0
@@ -106,6 +108,13 @@ public final class SessionController {
 
     public var isLive: Bool { phase == .live }
 
+    /// How long my current turn has run, counting words still in progress.
+    public var currentTurn: TimeInterval {
+        let recent = transcript.entries.suffix(80).map(\.segment)
+        let partial = transcript.partials[.me].map { (start: $0.start, end: $0.end) }
+        return CallCoach.currentTurn(recent, partial: partial, now: callTime)
+    }
+
     public var isBusy: Bool {
         switch phase {
         case .starting, .live, .finishing: true
@@ -140,6 +149,7 @@ public final class SessionController {
         playbookChosenByUser = chosen != nil
         context = provided ?? SessionContext()
         transcript = LiveTranscript(language: SaaaSettings.locale(defaults).language.languageCode?.identifier ?? "en")
+        coaching = CoachingStats()
         levels = nil
         callTime = 0
         transcriptionNote = nil
@@ -324,6 +334,9 @@ public final class SessionController {
             return
         }
         let outcome = transcript.apply(event)
+        if let outcome, outcome.added != nil || outcome.removedEchoes > 0 {
+            coaching = CallCoach.stats(transcript.entries.map(\.segment))
+        }
         if let entry = outcome?.added {
             copilot?.handleCommitted(entry)
         } else if case .partial(.them, _, _, let text) = event {

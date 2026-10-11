@@ -154,6 +154,65 @@ import Transcription
         #expect(summary.followUpEmail == nil)
     }
 
+    @Test func notesTrackTheChecklistOnlyWhenThePlaybookHasOne() throws {
+        let request = composer.notesRequest(transcript: makeTranscript(lines: 5), now: 40, previous: LiveNotes(covered: ["Budget"]), model: "m")
+        let tail = text(of: try #require(request.messages.first?.content.last))
+        #expect(tail.contains("Under COVERED, list the items from my checklist"))
+        #expect(tail.contains("\"Decision maker\""))
+        #expect(tail.contains("COVERED:\n- Budget"))
+        #expect(tail.hasSuffix("COVERED:\n- checklist item"))
+
+        let plain = PromptComposer(playbook: .general, context: Self.context)
+        let general = plain.notesRequest(transcript: makeTranscript(lines: 5), now: 40, previous: nil, model: "m")
+        #expect(!text(of: try #require(general.messages.first?.content.last)).contains("COVERED"))
+    }
+
+    @Test func summaryAsksForTheChecklistAndCoachingWithTheStats() throws {
+        let transcript = makeTranscript(lines: 6).transcript
+        let (request, _) = composer.summaryRequest(
+            transcript: transcript, notes: nil, thread: [], startedAt: .now, duration: 600, model: "m")
+        let body = text(of: try #require(request.messages.first?.content.first))
+        #expect(body.contains("checklist: exactly these items, in order: \"Their main pain\", \"Budget\""))
+        #expect(body.contains("coaching: feedback for me on how I ran this call"))
+        #expect(body.contains("I talked "))
+
+        let plain = PromptComposer(playbook: .general, context: Self.context)
+        let (general, _) = plain.summaryRequest(
+            transcript: transcript, notes: nil, thread: [], startedAt: .now, duration: 600, model: "m")
+        let generalBody = text(of: try #require(general.messages.first?.content.first))
+        #expect(generalBody.contains("checklist: return an empty array."))
+        #expect(generalBody.contains("coaching: return empty arrays."))
+    }
+
+    @Test func decodesTheChecklistAndCoaching() {
+        let value: JSONValue = [
+            "title": "Acme", "tldr": "", "key_points": [], "decisions": [], "action_items": [], "open_questions": [],
+            "sections": [], "follow_up_email": "",
+            "checklist": [
+                ["item": "Budget", "covered": true, "evidence": " $50k approved "],
+                ["item": "Timeline", "covered": false, "evidence": ""],
+                ["item": " ", "covered": true, "evidence": "x"],
+            ],
+            "coaching": ["went_well": ["Clear agenda"], "try_next": ["Ask about the decision maker earlier", " "]],
+        ]
+        let summary = PromptComposer.decodeSummary(value, model: "m")
+        #expect(summary.checklist == [
+            ChecklistResult(item: "Budget", covered: true, evidence: "$50k approved"),
+            ChecklistResult(item: "Timeline", covered: false),
+        ])
+        #expect(summary.coaching == CoachingFeedback(wentWell: ["Clear agenda"], tryNext: ["Ask about the decision maker earlier"]))
+
+        var empty = value
+        if case .object(var object) = empty {
+            object["checklist"] = []
+            object["coaching"] = ["went_well": [], "try_next": []]
+            empty = .object(object)
+        }
+        let plain = PromptComposer.decodeSummary(empty, model: "m")
+        #expect(plain.checklist == nil)
+        #expect(plain.coaching == nil)
+    }
+
     @Test func chatCachesTheReferenceAndKeepsTurns() throws {
         let material = PromptComposer.ChatMaterial(
             title: "Acme", startedAt: .now, transcript: makeTranscript(lines: 4).transcript, summary: nil,
