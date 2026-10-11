@@ -317,6 +317,8 @@ public final class SessionController {
         let outcome = transcript.apply(event)
         if let entry = outcome?.added {
             copilot?.handleCommitted(entry)
+        } else if case .partial(.them, _, _, let text) = event {
+            copilot?.handlePartial(text)
         }
     }
 

@@ -54,6 +54,9 @@ public final class CopilotEngine {
     @ObservationIgnored private let callTime: @MainActor () -> TimeInterval
     @ObservationIgnored private let screenReader: (@MainActor () async throws -> ScreenSnapshot)?
     @ObservationIgnored private var lookTask: Task<Void, Never>?
+    /// An answer started from in-progress words, before their line was final.
+    @ObservationIgnored private var early: (question: String, id: UUID)?
+    @ObservationIgnored private var pauseTask: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var answerTask: Task<Void, Never>?
     @ObservationIgnored private var notesTask: Task<Void, Never>?
@@ -71,6 +74,9 @@ public final class CopilotEngine {
     public static let notesMinimumNewWords = 60
     /// The action id Look answers carry in the thread.
     public static let lookActionID = "look"
+    /// How long in-progress words must sit still before a question without
+    /// a question mark counts as finished.
+    public static let earlyPause: Duration = .milliseconds(600)
 
     public init(
         playbook: Playbook,
@@ -211,11 +217,57 @@ public final class CopilotEngine {
 
     // MARK: - Session feed
 
+    /// Called with the other side's in-progress words. With auto-suggest on,
+    /// a question that sounds finished is answered before its line is final:
+    /// at once when it ends in "?", or after a short pause in the words.
+    public func handlePartial(_ text: String) {
+        pauseTask?.cancel()
+        guard !finished, autoSuggestEnabled, early == nil,
+              let question = QuestionDetector.extractQuestion(text) else { return }
+        if question.hasSuffix("?") {
+            answerEarly(question)
+        } else if Self.wordCount(question) >= 6 {
+            pauseTask = Task { [weak self] in
+                try? await Task.sleep(for: Self.earlyPause)
+                guard !Task.isCancelled else { return }
+                self?.answerEarly(question)
+            }
+        }
+    }
+
+    private func answerEarly(_ question: String) {
+        guard !finished, autoSuggestEnabled, early == nil, !isStreaming,
+              Self.wordCount(question) >= 4,
+              callTime() - lastAutoAnswer >= Self.autoAnswerCooldown,
+              let action = answerAction else { return }
+        lastAutoAnswer = callTime()
+        pendingQuestion = nil
+        if let id = start(.action(action, focus: question), kind: .suggestion, actionID: action.id,
+                          title: "They asked", prompt: question) {
+            early = (question, id)
+        }
+    }
+
     /// Called for every committed transcript line. Detects questions from
-    /// the other side and, with auto-suggest on, answers them.
+    /// the other side and, with auto-suggest on, answers them. A line an
+    /// early answer already covered is not answered twice.
     public func handleCommitted(_ entry: LiveTranscript.Entry) {
-        guard !finished, entry.lane == .them,
-              let question = QuestionDetector.extractQuestion(entry.segment.text) else { return }
+        guard !finished, entry.lane == .them else { return }
+        pauseTask?.cancel()
+        let found = QuestionDetector.extractQuestion(entry.segment.text)
+        if let started = early {
+            early = nil
+            // Still on the card (not cut off by another action) and the same
+            // question: it was answered while they were still speaking.
+            let survived = thread.contains { $0.id == started.id }
+            if survived, let found, Self.sameQuestion(started.question, found) { return }
+            // The line ended differently, or the early answer was cut off:
+            // drop it and treat the final line as usual.
+            if streamingID == started.id { cancel() }
+            thread.removeAll { $0.id == started.id }
+            lastAutoAnswer = -.infinity
+        }
+        guard let question = found else { return }
         let detected = DetectedQuestion(id: UUID(), text: question, callTime: entry.segment.start)
         pendingQuestion = detected
         guard autoSuggestEnabled, !isStreaming,
@@ -281,6 +333,8 @@ public final class CopilotEngine {
         answerTask?.cancel()
         notesTask?.cancel()
         lookTask?.cancel()
+        pauseTask?.cancel()
+        early = nil
         isLooking = false
         // Screen text never outlives the call.
         screenSnapshots.removeAll()
@@ -291,6 +345,27 @@ public final class CopilotEngine {
         isUpdatingNotes = false
         pendingQuestion = nil
         return (thread, notes, ledger)
+    }
+
+    // MARK: - Matching questions
+
+    static func wordCount(_ text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
+    }
+
+    /// The same question, give or take punctuation, case, a few trailing
+    /// words, or a small rewording by the transcriber.
+    static func sameQuestion(_ a: String, _ b: String) -> Bool {
+        func words(_ text: String) -> [Substring] {
+            text.lowercased().split { !$0.isLetter && !$0.isNumber }
+        }
+        let x = words(a), y = words(b)
+        guard !x.isEmpty, !y.isEmpty else { return false }
+        if x == y { return true }
+        let (short, long) = x.count <= y.count ? (x, y) : (y, x)
+        if long.starts(with: short), long.count - short.count <= 3 { return true }
+        let shortSet = Set(short), longSet = Set(long)
+        return Double(shortSet.intersection(longSet).count) / Double(shortSet.union(longSet).count) >= 0.8
     }
 
     // MARK: - Streaming
