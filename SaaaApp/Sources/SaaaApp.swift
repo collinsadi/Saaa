@@ -1,391 +1,251 @@
 import AppKit
-import SwiftUI
-import os
-import AudioCapture
-import CalendarContext
 import CallSession
-import ClaudeBridge
 import Core
 import DesignSystem
-import Extraction
-import Matching
-import Persistence
-import Transcription
+import SwiftUI
+import UniformTypeIdentifiers
 
-/// Saaa — every call, in context.
-///
-/// Phase-4 state (MVP): global hotkey → target resolution → two-lane capture
-/// → whisper transcription → Me/Them transcript in a review window. The
-/// design-system UI and notch island arrive in Phase 9.
-/// Receives Finder "Open with Saaa" files and routes them into the hub's
-/// import queue.
-final class SaaaAppDelegate: NSObject, NSApplicationDelegate {
-    @MainActor static var openHandler: (([URL]) -> Void)?
-
-    func application(_ application: NSApplication, open urls: [URL]) {
-        Task { @MainActor in
-            SaaaAppDelegate.openHandler?(urls)
-        }
-    }
-}
-
+/// Saaa: a live copilot for calls. Menu-bar first; the island under the
+/// notch while a session runs; the hub for everything after.
 @main
 struct SaaaApp: App {
     @NSApplicationDelegateAdaptor(SaaaAppDelegate.self) private var appDelegate
-    @State private var harness = CaptureHarness()
-    @State private var controller: CallController
-    @State private var reviewPresenter: ReviewWindowPresenter
-    @State private var hotkey: HotkeyMonitor
-    @State private var assistHotkey: HotkeyMonitor
-    @State private var island: IslandController
-    @State private var onboardingPresenter = OnboardingPresenter()
-    @State private var aboutPresenter = AboutPresenter()
-    @State private var mainPresenter = MainWindowPresenter()
-    @State private var importQueue = ImportQueueModel()
-    @State private var codeAssist = CodeAssistModel()
-    @State private var hubSelection = HubSelection()
-    @State private var codeAssistHotkey: HotkeyMonitor
+    @State private var shell: AppShell?
 
     init() {
-        let controller = CallController()
-        _controller = State(initialValue: controller)
-
-        // Wire the always-on surfaces at launch (not on first menu open):
-        // review presenter, global hotkey, and the notch island.
-        let presenter = ReviewWindowPresenter()
-        controller.onReview = { context in
-            presenter.show(controller: controller, context: context)
-        }
-        _reviewPresenter = State(initialValue: presenter)
-        _hotkey = State(initialValue: HotkeyMonitor { controller.toggle() })
-        _assistHotkey = State(initialValue: HotkeyMonitor(
-            binding: .optionCommandA, id: 2
-        ) { controller.liveAssist.answerLastThing() })
-        _island = State(initialValue: IslandController(callController: controller))
-
-        let mainPresenter = _mainPresenter.wrappedValue
-        let importQueue = _importQueue.wrappedValue
-        let codeAssist = _codeAssist.wrappedValue
-        let hubSelection = _hubSelection.wrappedValue
-
-        // Queue progression is observation-driven, not view-driven: imports
-        // advance with the hub closed.
-        importQueue.bind(to: controller)
-
-        // Settings ▸ General ▸ "Run setup again".
-        let onboarding = _onboardingPresenter.wrappedValue
-        let islandRef = _island.wrappedValue
-        mainPresenter.onSetup = {
-            onboarding.show {
-                islandRef.showWelcome()
-            }
-        }
-
-        // Code Assist capture from anywhere: crosshair first, then the hub
-        // opens on the pane with the result.
-        _codeAssistHotkey = State(initialValue: HotkeyMonitor(
-            binding: .shiftOptionCommandC, id: 3
-        ) {
-            guard CodeAssistModel.isEnabled else { return }
-            codeAssist.captureAndAsk()
-            hubSelection.pane = .codeAssist
-            mainPresenter.show(
-                controller: controller, importQueue: importQueue,
-                codeAssist: codeAssist, selection: hubSelection)
-        })
-
-        // Finder "Open with Saaa": hub comes up with the files queued.
-        SaaaAppDelegate.openHandler = { urls in
-            hubSelection.pane = .sessions
-            mainPresenter.show(
-                controller: controller, importQueue: importQueue,
-                codeAssist: codeAssist, selection: hubSelection)
-            importQueue.add(urls, controller: controller)
-        }
-
-        // First run: the guided bootstrap (permissions, model, claude).
-        if !UserDefaults.standard.bool(forKey: "onboardingComplete"),
-           !CommandLine.arguments.contains("--selftest") {
-            Task { @MainActor in
-                onboarding.show {
-                    UserDefaults.standard.set(true, forKey: "onboardingComplete")
-                    islandRef.showWelcome()
-                }
-            }
-        }
-
-        // Headless capture self-test (dev tooling): `open Saaa.app --args
-        // --selftest [--tap-only|--sck]` records 5 s, writes the usual
-        // WAVs + diagnostics.txt, then quits.
-        if CommandLine.arguments.contains("--tap-only") {
-            AudioCaptureModule.debugTapOnlyComposition = true
-        }
-        if CommandLine.arguments.contains("--selftest") {
-            let harness = harness
-            let forceSCK = CommandLine.arguments.contains("--sck")
-            Task { @MainActor in
-                if forceSCK { harness.forcedBackend = .screenCaptureKit }
-                let target: CaptureHarness.Target
-                if forceSCK, let running = harness.availableTargets().first(where: { $0.id > 0 }) {
-                    target = running
-                } else {
-                    target = .allSystemAudio
-                }
-                harness.record(target: target, seconds: 5)
-                while !harness.isSettled {
-                    try? await Task.sleep(for: .milliseconds(300))
-                }
-                NSApplication.shared.terminate(nil)
-            }
+        if let name = SelfTests.requested {
+            SelfTests.run(name)
+            _shell = State(initialValue: nil)
+        } else {
+            _shell = State(initialValue: AppShell())
         }
     }
 
     var body: some Scene {
         MenuBarExtra {
-            SaaaMenu(
-                controller: controller, harness: harness,
-                onOpenHub: { pane in
-                    if let pane {
-                        hubSelection.pane = pane
-                    }
-                    mainPresenter.show(
-                        controller: controller, importQueue: importQueue,
-                        codeAssist: codeAssist, selection: hubSelection)
-                },
-                onAbout: { aboutPresenter.show() })
+            if let shell {
+                SaaaMenu(shell: shell, model: shell.model)
+            } else {
+                Text("Running a self-test…")
+            }
         } label: {
-            // Brand glyph when idle; system indicators while active (the
-            // consent-first visible recording state).
-            switch controller.state {
-            case .recording:
-                Image(systemName: "record.circle")
-            case .armed, .processing:
-                Image(systemName: "waveform.badge.magnifyingglass")
-            default:
-                Image("MenuBarIcon")
+            MenuBarLabel(session: shell?.model.session)
+        }
+    }
+}
+
+/// Finder "Open with Saaa" and Dock clicks.
+final class SaaaAppDelegate: NSObject, NSApplicationDelegate {
+    @MainActor static var openHandler: (([URL]) -> Void)?
+    @MainActor static var reopenHandler: (() -> Void)?
+    @MainActor private static var pending: [URL] = []
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in
+            if let handler = SaaaAppDelegate.openHandler {
+                handler(urls)
+            } else {
+                SaaaAppDelegate.pending.append(contentsOf: urls)
             }
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Task { @MainActor in
+            SaaaAppDelegate.reopenHandler?()
+        }
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    @MainActor
+    static func takePending() -> [URL] {
+        defer { pending = [] }
+        return pending
+    }
 }
 
-/// The menu-bar menu (UI-PLAN §4.9): status narration, then one entry per
-/// destination — every hub entry routes through the same pane-forcing hub
-/// opener. "Run setup again" lives in Settings ▸ General.
-struct SaaaMenu: View {
-    let controller: CallController
-    let harness: CaptureHarness
-    let onOpenHub: (HubPane?) -> Void
-    let onAbout: () -> Void
+/// Owns the model and every surface for the life of the app.
+@MainActor
+final class AppShell {
+    let model: AppModel
+    let about = AboutPresenter()
+    private let island: IslandController
+    private let hub: HubPresenter
+    private let prep: PrepPresenter
+    private let onboarding: OnboardingPresenter
+    private var hotkeys: [HotkeyMonitor] = []
+
+    init() {
+        let model = AppModel()
+        self.model = model
+        let hub = HubPresenter(model: model)
+        let prep = PrepPresenter(model: model)
+        let island = IslandController(model: model)
+        self.hub = hub
+        self.prep = prep
+        self.island = island
+        onboarding = OnboardingPresenter(model: model)
+
+        model.openHubAction = { _ in hub.show() }
+        model.openPrepAction = { context, playbook in prep.show(context: context, playbook: playbook) }
+        model.focusIslandAction = { island.focus() }
+        model.runOnboardingAction = { [weak self] in self?.runOnboarding() }
+
+        // ⌥⌘R start/stop, ⌥⌘A answer now, ⌥⌘K ask. Global, so they work
+        // with the call app in front.
+        hotkeys = [
+            HotkeyMonitor(binding: .optionCommandR, id: 1) { [weak model] in model?.toggleSession() },
+            HotkeyMonitor(binding: .optionCommandA, id: 2) { [weak model] in model?.answerNow() },
+            HotkeyMonitor(binding: .optionCommandK, id: 3) { [weak model] in model?.focusAsk() },
+        ]
+
+        SaaaAppDelegate.openHandler = { [weak self] urls in self?.importFiles(urls) }
+        SaaaAppDelegate.reopenHandler = { [weak self] in self?.model.openHub() }
+        let pending = SaaaAppDelegate.takePending()
+        if !pending.isEmpty {
+            importFiles(pending)
+        }
+
+        if !UserDefaults.standard.bool(forKey: SaaaSettings.onboardingCompleteKey) {
+            Task { @MainActor [weak self] in
+                self?.runOnboarding()
+            }
+        }
+    }
+
+    func runOnboarding() {
+        onboarding.show { [weak self] in
+            self?.model.refreshKeyState()
+            self?.island.showWelcome()
+        }
+    }
+
+    func importFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        model.openHub(.sessions)
+        for url in urls {
+            model.session.importRecording(url)
+        }
+    }
+
+    /// Menu: pick recordings to transcribe and summarize.
+    func chooseRecordings() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio, .movie]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose recordings. Saaa transcribes them on this Mac."
+        NSApp.activate()
+        guard panel.runModal() == .OK else { return }
+        importFiles(panel.urls)
+    }
+}
+
+/// The menu-bar glyph: the brand mark at rest, a record glyph while live.
+struct MenuBarLabel: View {
+    let session: SessionController?
 
     var body: some View {
-        statusSection
+        if let session, session.isLive {
+            Image(systemName: session.micMuted ? "mic.slash.circle" : "record.circle")
+                .accessibilityLabel("Saaa, recording")
+        } else if let session, session.isBusy || !session.summarizing.isEmpty || !session.imports.isEmpty {
+            Image(systemName: "waveform.circle")
+                .accessibilityLabel("Saaa, working")
+        } else {
+            Image("MenuBarIcon")
+                .accessibilityLabel("Saaa")
+        }
+    }
+}
+
+/// The menu-bar menu: status, session controls, then destinations.
+struct SaaaMenu: View {
+    let shell: AppShell
+    @Bindable var model: AppModel
+
+    var body: some View {
+        status
         Divider()
-        #if DEBUG
-        Menu("Capture Harness") {
-            HarnessMenu(harness: harness)
-        }
+        controls
         Divider()
-        #endif
-        Button("Open Saaa…") {
-            onOpenHub(nil)
-        }
-        .keyboardShortcut("o")
-        Button("History…") {
-            onOpenHub(.history)
-        }
-        .keyboardShortcut("y")
-        Button("Settings…") {
-            onOpenHub(.settings)
-        }
-        .keyboardShortcut(",")
-        Button("About Saaa") {
-            onAbout()
-        }
+        Button("Open Saaa") { model.openHub(.home) }
+            .keyboardShortcut("o")
+        Button("Sessions") { model.openHub(.sessions) }
+        Button("Playbooks") { model.openHub(.playbooks) }
+        Button("Settings…") { model.openHub(.settings) }
+            .keyboardShortcut(",")
+        Button("Import a recording…") { shell.chooseRecordings() }
         Divider()
-        Button("Quit Saaa") {
-            NSApplication.shared.terminate(nil)
-        }
-        .keyboardShortcut("q")
+        Button("About Saaa") { shell.about.show() }
+        Button("Quit Saaa") { NSApplication.shared.terminate(nil) }
+            .keyboardShortcut("q")
     }
 
     @ViewBuilder
-    private var statusSection: some View {
-        switch controller.state {
-        case .idle, .done:
-            Button("Start Recording (⌥⌘R)") { controller.toggle() }
-            if controller.queueBusy {
-                Text(controller.processingDetail.isEmpty
-                    ? "Processing queued calls…" : controller.processingDetail)
-            }
-            if controller.hasReadyReview {
-                Button("Open Ready Review") { controller.openLatestReadyReview() }
-            }
-        case .armed:
-            Text("Starting…")
-        case .recording:
-            if let levels = controller.levels {
-                Text("Recording \(Duration.seconds(levels.time).formatted(.time(pattern: .minuteSecond)))  Me \(bar(levels.mic.rms))  Them \(bar(levels.system.rms))")
-            } else {
-                Text("Recording…")
-            }
-            if controller.silencePromptVisible {
-                Button("Still recording? Keep going") { controller.dismissSilencePrompt() }
-            }
-            Button("Stop Recording (⌥⌘R)") { controller.toggle() }
-        case .processing:
-            Text(controller.processingDetail.isEmpty ? "Processing…" : controller.processingDetail)
-        case .review:
-            Text("Transcript open for review")
-        case .error(let message):
-            Text("Error: \(message)").lineLimit(4)
-            Button("Try Again (⌥⌘R)") { controller.toggle() }
-        }
-    }
-
-    private func bar(_ rms: Float) -> String {
-        let blocks = ["▁", "▂", "▃", "▅", "▆", "█"]
-        let level = min(5, Int(rms * 12))
-        return blocks[level]
-    }
-}
-
-/// Phase-2 validation harness: records N seconds of a chosen process (both
-/// lanes) to two WAVs and reveals them in Finder. Internal tooling — not a
-/// shipped user flow.
-@MainActor @Observable
-final class CaptureHarness {
-    enum State {
-        case idle
-        case recording(target: String, remaining: Int)
-        case finished(RecordingResult)
-        case failed(String)
-    }
-
-    private(set) var state: State = .idle
-
-    /// True once a run has finished or failed (selftest exit condition).
-    var isSettled: Bool {
-        switch state {
-        case .finished, .failed: true
-        case .idle, .recording: false
-        }
-    }
-
-    struct Target: Identifiable {
-        let id: pid_t // -1 = all system audio
-        let name: String
-        let isPlayingAudio: Bool
-
-        var captureTarget: CaptureTarget {
-            id == -1 ? .allSystemAudio : .process(id)
-        }
-
-        static let allSystemAudio = Target(
-            id: -1, name: "All System Audio (debug)", isPlayingAudio: false)
-    }
-
-    /// Pickable apps (helper processes attributed to their app), audio-active
-    /// first, plus the global-tap debug entry. Cheap synchronous property
-    /// reads — safe to call when the menu opens.
-    func availableTargets() -> [Target] {
-        let apps = (try? AudioProcessDirectory.appLevelSnapshot(
-            excluding: ProcessInfo.processInfo.processIdentifier)) ?? []
-        return [.allSystemAudio] + apps.map {
-            Target(id: $0.id, name: $0.name, isPlayingAudio: $0.isPlayingAudio)
-        }
-    }
-
-    /// Debug: force a backend for the next recordings (harness `--sck`).
-    var forcedBackend: CaptureBackend?
-
-    func record(target: Target, seconds: Int = 10) {
-        guard case .idle = state else { return }
-        state = .recording(target: target.name, remaining: seconds)
-        Task {
-            await run(target: target, seconds: seconds)
-        }
-    }
-
-    private func run(target: Target, seconds: Int) async {
-        let stamp = Date().formatted(
-            .verbatim(
-                "\(year: .defaultDigits)\(month: .twoDigits)\(day: .twoDigits)-\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased))\(minute: .twoDigits)\(second: .twoDigits)",
-                timeZone: .current, calendar: .current))
-        let directory = URL.applicationSupportDirectory
-            .appendingPathComponent("Saaa/Harness/\(stamp)", isDirectory: true)
-
-        let session = CaptureSession(
-            configuration: CaptureConfiguration(
-                target: target.captureTarget, outputDirectory: directory,
-                preferredBackend: forcedBackend))
-        let log = Logger(subsystem: "dev.collinsadi.saaa", category: "Harness")
-        let monitor = Task {
-            for await event in session.events {
-                switch event {
-                case .levels(let levels):
-                    // Meter feed proof for Phase 9 — visible in Console.app
-                    // (subsystem dev.collinsadi.saaa).
-                    if Int(levels.time * 10) % 10 == 0 {
-                        log.info("levels t=\(String(format: "%.1f", levels.time))s mic=\(levels.mic.rmsDecibels)dB sys=\(levels.system.rmsDecibels)dB")
-                    }
-                case .systemAudioPermissionSuspected:
-                    log.warning("system lane is all-zero — System Audio Recording grant suspected missing")
-                case .stopped(let reason):
-                    log.info("capture stopped: \(String(describing: reason), privacy: .public)")
-                default:
-                    log.info("event: \(String(describing: event), privacy: .public)")
-                }
-            }
-        }
-        defer { monitor.cancel() }
-
-        do {
-            try await session.start()
-            for remaining in stride(from: seconds, through: 1, by: -1) {
-                state = .recording(target: target.name, remaining: remaining)
-                try await Task.sleep(for: .seconds(1))
-                if await session.result != nil { break } // auto-stopped (app quit)
-            }
-            let result = try await session.stop()
-            state = .finished(result)
-            NSWorkspace.shared.activateFileViewerSelecting(
-                [result.micFileURL, result.systemFileURL])
-        } catch {
-            state = .failed(String(describing: error))
-        }
-    }
-
-    func reset() {
-        if case .recording = state { return }
-        state = .idle
-    }
-}
-
-struct HarnessMenu: View {
-    let harness: CaptureHarness
-
-    var body: some View {
-        switch harness.state {
+    private var status: some View {
+        let session = model.session
+        switch session.phase {
         case .idle:
-            Text("Capture harness: record 10 s")
-            let targets = harness.availableTargets()
-            if targets.isEmpty {
-                Text("No audio-capable apps found")
+            if let suggestion = model.detector.suggestion {
+                Text("\(suggestion.title) is starting")
+            } else {
+                Text("Ready. Start a session with ⌥⌘R")
             }
-            ForEach(targets) { target in
-                Button("\(target.isPlayingAudio ? "🔊 " : "")\(target.name)") {
-                    harness.record(target: target)
+        case .starting:
+            Text("Starting…")
+        case .live:
+            Text("Live \(CallTime.stamp(session.callTime)) with \(session.playbook.name)")
+        case .finishing:
+            Text("Saving the session…")
+        case .failed(let message):
+            Text(message)
+        }
+        if !session.summarizing.isEmpty {
+            Text(session.summarizing.count == 1 ? "Writing a summary…" : "Writing \(session.summarizing.count) summaries…")
+        }
+        if !session.imports.isEmpty {
+            Text(session.imports.count == 1 ? "Transcribing a recording…" : "Transcribing \(session.imports.count) recordings…")
+        }
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        let session = model.session
+        if session.isLive {
+            Button("Stop session") { session.stop() }
+            Button("Answer what they asked") { model.answerNow() }
+                .disabled(session.copilot == nil)
+            Button("Ask Saaa…") { model.focusAsk() }
+                .disabled(session.copilot == nil)
+            Button(model.panelExpanded ? "Hide the live panel" : "Show the live panel") {
+                model.panelExpanded.toggle()
+            }
+            Button(session.micMuted ? "Unmute my mic" : "Mute my mic") {
+                session.setMicMuted(!session.micMuted)
+            }
+            Button("Call context…") { model.openPrep() }
+            Menu("Playbook") {
+                ForEach(model.playbooks.all) { playbook in
+                    Toggle(playbook.name, isOn: Binding(
+                        get: { session.playbook.id == playbook.id },
+                        set: { if $0 { session.switchPlaybook(playbook) } }))
                 }
             }
-        case .recording(let target, let remaining):
-            Text("Recording \(target)… \(remaining)s")
-        case .finished(let result):
-            Text("Saved \(String(format: "%.1f", result.duration))s (\(result.backendUsed == .processTap ? "tap" : "SCK"))")
-            Button("Record again") { harness.reset() }
-        case .failed(let message):
-            Text("Failed: \(message)").lineLimit(3)
-            Button("Try again") { harness.reset() }
+        } else if !session.isBusy {
+            if model.detector.suggestion != nil {
+                Button("Start this meeting") { model.startSuggested() }
+            }
+            Button("Start session") { model.startSession() }
+            Menu("Start with") {
+                ForEach(model.playbooks.all) { playbook in
+                    Button(playbook.name) { model.startSession(playbook: playbook) }
+                }
+            }
+            Button("Prepare a session…") { model.openPrep() }
         }
     }
 }

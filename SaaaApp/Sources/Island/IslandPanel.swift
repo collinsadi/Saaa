@@ -5,18 +5,13 @@ import DesignSystem
 import SwiftUI
 
 /// The island's window: a fixed, oversized, borderless, non-activating panel
-/// per display, level statusBar+3. Verified contracts (probed on this
-/// hardware): clicks pass through zero-alpha regions per-pixel; ANY alpha at
-/// menu-bar height swallows menu-bar clicks — so the panel draws NO shadows
-/// or glows, ever; the window-server click region tracks SwiftUI shape
-/// changes within ~300 ms.
+/// at statusBar+3. Verified contracts: clicks pass through zero-alpha
+/// regions per pixel; ANY alpha at menu-bar height swallows menu-bar clicks,
+/// so nothing but the black bar itself ever draws up there (no shadows, no
+/// glow); the glass panel starts below the bar.
 final class IslandPanel: NSPanel {
-    /// Key focus is allowed ONLY while the assist tier's ask field can be on
-    /// screen (recording + Live Assist on). With `becomesKeyOnlyIfNeeded`
-    /// the panel still only takes key when the field itself is clicked —
-    /// Spotlight-style: keyboard comes here, the front app stays active.
-    /// HARDWARE-VERIFY: typing must not steal the call app's focus, and
-    /// dormant click-through must survive (UI-PLAN §4.7 probe).
+    /// Key focus only while the live panel (and its Ask field) is open. The
+    /// call app stays the active app: typing comes here Spotlight-style.
     var allowsKey = false
 
     init(frame: NSRect) {
@@ -28,7 +23,7 @@ final class IslandPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = false // any alpha at menu-bar height swallows clicks
+        hasShadow = false
         isMovable = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
@@ -39,7 +34,7 @@ final class IslandPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Observable outside-click counter (main-actor).
+/// Bumped on any click outside the panel (global monitor = other apps).
 @MainActor
 @Observable
 final class OutsideClickSignal {
@@ -47,135 +42,111 @@ final class OutsideClickSignal {
     func bump() { count += 1 }
 }
 
-/// One-shot welcome trigger: the island introduces itself after onboarding
-/// (grows out of the notch, teaches the hotkey, retreats — the retreat IS
-/// the lesson about where Saaa lives).
+/// The post-onboarding hello.
 @MainActor
 @Observable
 final class WelcomePulse {
     private(set) var active = false
-
     func fire() { active = true }
     func dismiss() { active = false }
 }
 
-/// Owns the island panel: creation, notch-centered placement, and
-/// re-measurement on display changes. All morphing happens SwiftUI-side —
-/// the panel frame never animates.
+/// Owns the island panel: placement under the notch, re-measurement on
+/// display changes, click-through when nothing is showing, and key focus
+/// for the Ask field.
 @MainActor
 final class IslandController {
-
-    /// Oversized fixed panel: room for the expanded tier + peek (and the
-    /// Live Assist answer block) without ever resizing the window.
-    private static let panelSize = NSSize(width: 620, height: 320)
 
     private var panel: IslandPanel?
     private var screenObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private var clickMonitor: Any?
-    private let callController: CallController
-    /// Bumped on any click outside the panel — the root view observes it to
-    /// collapse the expanded tier ("Esc/outside collapses, recording
-    /// continues"). Global mouse monitors need no extra permission.
+    private let model: AppModel
     let outsideClick = OutsideClickSignal()
-    /// Post-onboarding hello.
     let welcome = WelcomePulse()
 
-    /// Shows the welcome tier (auto-retracts from the root view).
+    init(model: AppModel) {
+        self.model = model
+        install()
+        track()
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.install() }
+        }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyInteractivity() }
+        }
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [outsideClick] _ in
+            outsideClick.bump()
+        }
+    }
+
     func showWelcome() {
         welcome.fire()
     }
 
-    init(callController: CallController) {
-        self.callController = callController
-        install()
-        trackDormancy()
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.install()
-            }
-        }
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.applyDormancy()
-            }
-        }
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [outsideClick] _ in
-            // Global monitor = clicks in OTHER apps; anything landing on the
-            // panel itself arrives via local events instead, so every global
-            // click is by definition outside the island.
-            outsideClick.bump()
-        }
+    /// Makes the panel key so the Ask field can take typing.
+    func focus() {
+        guard let panel else { return }
+        panel.allowsKey = true
+        panel.makeKey()
     }
 
     private func install() {
         guard let screen = NotchMetrics.preferredScreen() else { return }
         let metrics = NotchMetrics.measure(screen)
-
+        let size = Size.Island.windowSize
         let frame = NSRect(
-            x: screen.frame.midX - Self.panelSize.width / 2,
-            y: screen.frame.maxY - Self.panelSize.height,
-            width: Self.panelSize.width,
-            height: Self.panelSize.height)
-
+            x: screen.frame.midX - size.width / 2,
+            y: screen.frame.maxY - size.height,
+            width: size.width, height: size.height)
         let panel = self.panel ?? IslandPanel(frame: frame)
         panel.setFrame(frame, display: true)
-        let root = IslandRootView(
-            controller: callController, metrics: metrics,
-            outsideClick: outsideClick, welcome: welcome)
+        let root = IslandRootView(model: model, metrics: metrics, outsideClick: outsideClick, welcome: welcome)
             .saaaThemed(fixed: .dark)
-        panel.contentView = NSHostingView(rootView: AnyView(root))
+            .environment(\.colorScheme, .dark)
+        let hosting = NSHostingView(rootView: AnyView(root))
+        hosting.sizingOptions = []
+        panel.contentView = hosting
         panel.orderFrontRegardless()
         self.panel = panel
-        CaptureExclusion.shared.register(panel, as: .island)
-        applyDormancy()
+        ScreenPrivacy.shared.register(panel, as: .island)
+        applyInteractivity()
     }
 
-    /// The oversized panel blocks the window server's resize-cursor bands
-    /// for windows underneath it — even where its pixels are zero-alpha
-    /// (clicks pass through per-pixel; cursor tracking does not). A dormant
-    /// island renders nothing clickable, so the panel ignores mouse events
-    /// entirely until a tier becomes visible again.
-    private func trackDormancy() {
+    private func track() {
         withObservationTracking {
-            _ = callController.state
+            _ = model.session.phase
+            _ = model.session.readySummary
+            _ = model.session.summarizing.count
+            _ = model.session.imports.count
+            _ = model.detector.suggestion
+            _ = model.panelExpanded
             _ = welcome.active
-            _ = callController.queueBusy
-            _ = callController.hasReadyReview
-            _ = callController.liveAssist.phase
         } onChange: { [weak self] in
             Task { @MainActor in
-                guard let self else { return }
-                self.applyDormancy()
-                self.trackDormancy()
+                self?.applyInteractivity()
+                self?.track()
             }
         }
-        applyDormancy()
     }
 
-    /// Idle with interactive content is NOT dormant: the queue-narration bar,
-    /// the peek's Review button, and the afterglow tap all render during
-    /// idle — a dormant (mouse-transparent) panel would leave them dead.
-    private func applyDormancy() {
-        let islandShown = (UserDefaults.standard.object(forKey: "showIsland") as? Bool) ?? true
-        let dormant: Bool = switch callController.state {
-        case .idle, .done:
-            !welcome.active && !callController.queueBusy && !callController.hasReadyReview
-        default: false
-        }
-        panel?.ignoresMouseEvents = dormant || !islandShown
-        // The ask field is only reachable while recording with Live Assist
-        // on; outside that window the panel can never become key.
-        let recording: Bool = if case .recording = callController.state { true } else { false }
-        let allowsKey = recording && callController.liveAssist.phase != .off && islandShown
+    /// A dormant island renders nothing clickable: the whole panel ignores
+    /// the mouse so the windows beneath keep their cursors and clicks.
+    private func applyInteractivity() {
+        let shown = UserDefaults.standard.object(forKey: SaaaSettings.showIslandKey) as? Bool ?? true
+        let session = model.session
+        let busy = session.phase != .idle
+            || session.readySummary != nil
+            || !session.summarizing.isEmpty
+            || !session.imports.isEmpty
+            || model.detector.suggestion != nil
+            || welcome.active
+        panel?.ignoresMouseEvents = !(shown && busy)
+        let allowsKey = shown && session.isLive && model.panelExpanded
         if panel?.allowsKey != allowsKey {
             panel?.allowsKey = allowsKey
             if !allowsKey, panel?.isKeyWindow == true {

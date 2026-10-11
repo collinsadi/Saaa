@@ -1,3 +1,4 @@
+import Core
 import SwiftUI
 import Testing
 @testable import DesignSystem
@@ -15,16 +16,19 @@ import Testing
         #expect(SaaaPalette.resolve(colorScheme: .dark, contrast: .increased) == .darkHighContrast)
     }
 
-    @Test func islandPaletteIsDark() {
-        // The island pins dark tokens regardless of system appearance.
-        #expect(SaaaPalette.dark.surfaceBase == Color(hex: 0x14171A))
+    @Test func islandStaysTrueBlack() {
+        #expect(SaaaPalette.islandSurface == Color(hex: 0x000000))
         #expect(SaaaPalette.dark.emberLamp == Color(hex: 0xFF9F0A))
     }
 
-    @Test func motionSpringsMatchApprovedSpec() {
-        // Collapse must be critically damped (never bounces) — the values
-        // are part of the approved interaction contract.
+    @Test func everyPlaybookTintHasADistinctColor() {
+        let colors = PlaybookTint.allCases.map(\.color)
+        #expect(Set(colors.map { "\($0)" }).count == PlaybookTint.allCases.count)
+    }
+
+    @Test func motionContractsHold() {
         #expect(Motion.contentLag == 0.09)
         #expect(Motion.peekDwell == 8)
+        #expect(Radius.panel > Radius.card && Radius.card > Radius.control)
     }
 }

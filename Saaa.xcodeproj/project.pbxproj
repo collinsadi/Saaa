@@ -7,15 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5AA00000000000000000004A /* AgentBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA00000000000000000003A /* AgentBridge */; };
+		5AA00000000000000000004C /* Copilot in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA00000000000000000003C /* Copilot */; };
+		5AA00000000000000000004B /* AnthropicKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA00000000000000000003B /* AnthropicKit */; };
 		5AA000000000000000000040 /* AudioCapture in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000030 /* AudioCapture */; };
 		5AA000000000000000000041 /* CalendarContext in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000031 /* CalendarContext */; };
 		5AA000000000000000000042 /* CallSession in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000032 /* CallSession */; };
-		5AA000000000000000000043 /* ClaudeBridge in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000033 /* ClaudeBridge */; };
 		5AA000000000000000000044 /* Core in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000034 /* Core */; };
 		5AA000000000000000000045 /* DesignSystem in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000035 /* DesignSystem */; };
-		5AA000000000000000000046 /* Extraction in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000036 /* Extraction */; };
-		5AA000000000000000000047 /* Matching in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000037 /* Matching */; };
 		5AA000000000000000000048 /* Persistence in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000038 /* Persistence */; };
 		5AA000000000000000000049 /* Transcription in Frameworks */ = {isa = PBXBuildFile; productRef = 5AA000000000000000000039 /* Transcription */; };
 /* End PBXBuildFile section */
@@ -33,15 +31,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5AA00000000000000000004A /* AgentBridge in Frameworks */,
+				5AA00000000000000000004B /* AnthropicKit in Frameworks */,
+				5AA00000000000000000004C /* Copilot in Frameworks */,
 				5AA000000000000000000040 /* AudioCapture in Frameworks */,
 				5AA000000000000000000041 /* CalendarContext in Frameworks */,
 				5AA000000000000000000042 /* CallSession in Frameworks */,
-				5AA000000000000000000043 /* ClaudeBridge in Frameworks */,
 				5AA000000000000000000044 /* Core in Frameworks */,
 				5AA000000000000000000045 /* DesignSystem in Frameworks */,
-				5AA000000000000000000046 /* Extraction in Frameworks */,
-				5AA000000000000000000047 /* Matching in Frameworks */,
 				5AA000000000000000000048 /* Persistence in Frameworks */,
 				5AA000000000000000000049 /* Transcription in Frameworks */,
 			);
@@ -86,15 +82,13 @@
 			);
 			name = Saaa;
 			packageProductDependencies = (
-				5AA00000000000000000003A /* AgentBridge */,
+				5AA00000000000000000003C /* Copilot */,
+				5AA00000000000000000003B /* AnthropicKit */,
 				5AA000000000000000000030 /* AudioCapture */,
 				5AA000000000000000000031 /* CalendarContext */,
 				5AA000000000000000000032 /* CallSession */,
-				5AA000000000000000000033 /* ClaudeBridge */,
 				5AA000000000000000000034 /* Core */,
 				5AA000000000000000000035 /* DesignSystem */,
-				5AA000000000000000000036 /* Extraction */,
-				5AA000000000000000000037 /* Matching */,
 				5AA000000000000000000038 /* Persistence */,
 				5AA000000000000000000039 /* Transcription */,
 			);
@@ -127,15 +121,13 @@
 			mainGroup = 5AA00000000000000000000C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				5AA00000000000000000002A /* XCLocalSwiftPackageReference "Packages/AgentBridge" */,
+				5AA00000000000000000002C /* XCLocalSwiftPackageReference "Packages/Copilot" */,
+				5AA00000000000000000002B /* XCLocalSwiftPackageReference "Packages/AnthropicKit" */,
 				5AA000000000000000000020 /* XCLocalSwiftPackageReference "Packages/AudioCapture" */,
 				5AA000000000000000000021 /* XCLocalSwiftPackageReference "Packages/CalendarContext" */,
 				5AA000000000000000000022 /* XCLocalSwiftPackageReference "Packages/CallSession" */,
-				5AA000000000000000000023 /* XCLocalSwiftPackageReference "Packages/ClaudeBridge" */,
 				5AA000000000000000000024 /* XCLocalSwiftPackageReference "Packages/Core" */,
 				5AA000000000000000000025 /* XCLocalSwiftPackageReference "Packages/DesignSystem" */,
-				5AA000000000000000000026 /* XCLocalSwiftPackageReference "Packages/Extraction" */,
-				5AA000000000000000000027 /* XCLocalSwiftPackageReference "Packages/Matching" */,
 				5AA000000000000000000028 /* XCLocalSwiftPackageReference "Packages/Persistence" */,
 				5AA000000000000000000029 /* XCLocalSwiftPackageReference "Packages/Transcription" */,
 			);
@@ -178,7 +170,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -195,7 +187,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
@@ -212,7 +204,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SaaaApp/Info.plist;
@@ -220,7 +212,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.collinsadi.saaa;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -234,7 +226,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SaaaApp/Info.plist;
@@ -242,7 +234,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.collinsadi.saaa;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -272,9 +264,13 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		5AA00000000000000000002A /* XCLocalSwiftPackageReference "Packages/AgentBridge" */ = {
+		5AA00000000000000000002C /* XCLocalSwiftPackageReference "Packages/Copilot" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/AgentBridge;
+			relativePath = Packages/Copilot;
+		};
+		5AA00000000000000000002B /* XCLocalSwiftPackageReference "Packages/AnthropicKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/AnthropicKit;
 		};
 		5AA000000000000000000020 /* XCLocalSwiftPackageReference "Packages/AudioCapture" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -288,10 +284,6 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CallSession;
 		};
-		5AA000000000000000000023 /* XCLocalSwiftPackageReference "Packages/ClaudeBridge" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/ClaudeBridge;
-		};
 		5AA000000000000000000024 /* XCLocalSwiftPackageReference "Packages/Core" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Core;
@@ -299,14 +291,6 @@
 		5AA000000000000000000025 /* XCLocalSwiftPackageReference "Packages/DesignSystem" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/DesignSystem;
-		};
-		5AA000000000000000000026 /* XCLocalSwiftPackageReference "Packages/Extraction" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/Extraction;
-		};
-		5AA000000000000000000027 /* XCLocalSwiftPackageReference "Packages/Matching" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/Matching;
 		};
 		5AA000000000000000000028 /* XCLocalSwiftPackageReference "Packages/Persistence" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -319,9 +303,13 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		5AA00000000000000000003A /* AgentBridge */ = {
+		5AA00000000000000000003C /* Copilot */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = AgentBridge;
+			productName = Copilot;
+		};
+		5AA00000000000000000003B /* AnthropicKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AnthropicKit;
 		};
 		5AA000000000000000000030 /* AudioCapture */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -335,10 +323,6 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = CallSession;
 		};
-		5AA000000000000000000033 /* ClaudeBridge */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ClaudeBridge;
-		};
 		5AA000000000000000000034 /* Core */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Core;
@@ -346,14 +330,6 @@
 		5AA000000000000000000035 /* DesignSystem */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DesignSystem;
-		};
-		5AA000000000000000000036 /* Extraction */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = Extraction;
-		};
-		5AA000000000000000000037 /* Matching */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = Matching;
 		};
 		5AA000000000000000000038 /* Persistence */ = {
 			isa = XCSwiftPackageProductDependency;

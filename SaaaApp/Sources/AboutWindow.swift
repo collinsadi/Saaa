@@ -3,9 +3,8 @@ import Core
 import DesignSystem
 import SwiftUI
 
-/// About Saaa (UI-PLAN §4.8): brand, version, and the consent posture in one
-/// calm plate. Lives in the menu-bar menu because Saaa is accessory-first —
-/// the main menu is unreachable exactly when the hub is closed.
+/// About Saaa: brand, version, and the data posture in one calm plate.
+/// Lives in the menu-bar menu because Saaa is accessory-first.
 @MainActor
 final class AboutPresenter {
 
@@ -20,7 +19,7 @@ final class AboutPresenter {
             window.isReleasedWhenClosed = false
             WindowChrome.applySeamless(to: window)
             window.center()
-            CaptureExclusion.shared.register(window, as: .settings)
+            ScreenPrivacy.shared.register(window, as: .about)
             self.window = window
         }
         if let window {
@@ -47,7 +46,7 @@ private struct AboutView: View {
             Text("Saaa")
                 .font(SaaaFont.title1)
                 .foregroundStyle(saaa.textPrimary)
-            Text("Every call, in context")
+            Text("A copilot for every call")
                 .font(SaaaFont.callout)
                 .foregroundStyle(saaa.textSecondary)
             Text(version)
@@ -57,7 +56,7 @@ private struct AboutView: View {
                 .overlay(saaa.borderHairline)
                 .frame(width: 180)
                 .padding(.vertical, Space.sm)
-            Text("Records only when you start it. Transcribed and sealed on this Mac.")
+            Text("Records only when you start it. Audio stays on this Mac; only transcript text goes to Claude, with your key.")
                 .font(SaaaFont.callout)
                 .foregroundStyle(saaa.textSecondary)
                 .multilineTextAlignment(.center)

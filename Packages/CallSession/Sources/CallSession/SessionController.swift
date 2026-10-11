@@ -71,7 +71,8 @@ public final class SessionController {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let keyStore: KeychainKeyStore
     @ObservationIgnored private let calendar = CalendarReader()
-    @ObservationIgnored private let playbooks: @MainActor () -> PlaybookLibrary
+    /// Current playbooks (the app rebinds this once its model exists).
+    @ObservationIgnored public var playbookProvider: @MainActor () -> PlaybookLibrary
 
     // MARK: Internals
 
@@ -97,7 +98,7 @@ public final class SessionController {
         self.client = client
         self.keyStore = keyStore
         self.defaults = defaults
-        self.playbooks = playbooks
+        self.playbookProvider = playbooks
     }
 
     public var isLive: Bool { phase == .live }
@@ -130,7 +131,7 @@ public final class SessionController {
         default: return
         }
         phase = .starting
-        let library = playbooks()
+        let library = playbookProvider()
         playbook = chosen ?? library.defaultPlaybook
         playbookChosenByUser = chosen != nil
         context = provided ?? SessionContext()
@@ -405,7 +406,7 @@ public final class SessionController {
         summaryFailures[record.id] = nil
         let library = self.library
         let service = SummaryService(service: client)
-        let playbook = playbooks().playbook(id: record.playbookID) ?? .general
+        let playbook = playbookProvider().playbook(id: record.playbookID) ?? .general
         let model = ModelRole.summary.modelID(defaults: defaults)
         Task { [weak self] in
             do {
@@ -437,7 +438,7 @@ public final class SessionController {
         importFailure = nil
         let library = self.library
         let locale = SaaaSettings.locale(defaults)
-        let playbook = chosen ?? playbooks().defaultPlaybook
+        let playbook = chosen ?? playbookProvider().defaultPlaybook
         Task { [weak self] in
             do {
                 let created = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .now

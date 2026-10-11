@@ -8,8 +8,7 @@ import AppKit
 @MainActor
 enum WindowFront {
     static func present(_ window: NSWindow) {
-        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }

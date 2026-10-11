@@ -13,12 +13,18 @@ public enum Space {
     public static let huge: CGFloat = 44
 }
 
-/// Corner radii (radius/*).
+/// Corner radii (radius/*). Glass surfaces use the larger, concentric set.
 public enum Radius {
     public static let sm: CGFloat = 4
     public static let md: CGFloat = 6
     public static let lg: CGFloat = 8
     public static let xl: CGFloat = 16
+    /// Glass controls and chips.
+    public static let control: CGFloat = 12
+    /// Cards inside glass panels and hub cards.
+    public static let card: CGFloat = 18
+    /// Floating glass panels (the live panel).
+    public static let panel: CGFloat = 26
     public static let full: CGFloat = 999
 }
 
@@ -48,9 +54,10 @@ public enum Size {
         public static let flankWidth: CGFloat = 120
         /// Expanded panel width (H7).
         public static let expandedWidth: CGFloat = 400
-        /// The Live Assist tier's width — the copilot thread needs the room;
-        /// still inside the fixed 620-wide panel.
-        public static let assistWidth: CGFloat = 600
+        /// The live copilot panel under the island.
+        public static let panelWidth: CGFloat = 580
+        /// The island's fixed, oversized host window.
+        public static let windowSize = CGSize(width: 760, height: 720)
         /// Meter bar strip height inside the flanks.
         public static let meterHeight: CGFloat = 8
         /// Compact bar bottom corners.

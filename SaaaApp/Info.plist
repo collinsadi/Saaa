@@ -45,8 +45,10 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Saaa records your side of a call so it can be transcribed on this Mac. Audio never leaves your machine.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Saaa records the other side of a call from the conferencing app’s audio so both sides can be transcribed on this Mac.</string>
+	<string>Saaa listens to the other side of your call from the call app’s audio so both sides can be transcribed on this Mac.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Saaa reads the calendar event overlapping a call to help file the conversation into the right project.</string>
+	<string>Saaa reads your upcoming events to suggest a session when a meeting starts and to fill in who is on the call. Events stay on this Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Saaa uses Apple's on-device speech recognition to transcribe your calls. Audio never leaves your Mac.</string>
 </dict>
 </plist>
