@@ -4,10 +4,12 @@ import Foundation
 /// fallback: live answers degrade quietly, onboarding shows a specific fix,
 /// summaries retry when ``isRetryable``.
 public enum AnthropicError: Error, Equatable, Sendable {
-    /// No API key in the Keychain yet (onboarding not finished).
+    /// Not connected yet: no relay token (or no key, talking directly).
     case missingAPIKey
     /// 401: the key was rejected.
     case unauthorized(String)
+    /// 401 from the Saaa relay: this device's token is unknown or revoked.
+    case relayUnauthorized
     /// 403: the key is valid but not allowed to do this.
     case permissionDenied(String)
     /// 400/404/413: the request itself is wrong (bad model id, too large...).
@@ -38,8 +40,9 @@ public enum AnthropicError: Error, Equatable, Sendable {
     /// Short, calm copy for inline UI. Never contains request content.
     public var userMessage: String {
         switch self {
-        case .missingAPIKey: "Add your Claude API key in Settings."
-        case .unauthorized: "Claude rejected the API key. Check it in Settings."
+        case .missingAPIKey: "Connect Claude in Settings."
+        case .unauthorized: "Claude rejected the API key. Connect a new one in Settings."
+        case .relayUnauthorized: "This Mac isn't connected to your Saaa server anymore. Connect again in Settings."
         case .permissionDenied: "This API key can't use that model."
         case .invalidRequest(let message): "Claude couldn't take that request (\(message.prefix(80)))."
         case .rateLimited(let after):
@@ -58,6 +61,7 @@ public enum AnthropicError: Error, Equatable, Sendable {
         let parsed = ErrorEnvelope.parse(body)
         let message = parsed?.message ?? (body.isEmpty ? HTTPURLResponse.localizedString(forStatusCode: status) : String(body.prefix(300)))
         switch status {
+        case 401 where parsed?.type == "relay_unauthorized": return .relayUnauthorized
         case 401: return .unauthorized(message)
         case 403: return .permissionDenied(message)
         case 400, 404, 413: return .invalidRequest(message)

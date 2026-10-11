@@ -193,7 +193,7 @@ struct SessionDetailView: View {
             HStack(spacing: Space.md) {
                 Image(systemName: "text.document").foregroundStyle(.secondary)
                 Text(model.session.summaryFailures[record.id]
-                     ?? (model.hasAPIKey ? "No summary yet." : "Add a Claude API key to write summaries."))
+                     ?? (model.hasAPIKey ? "No summary yet." : "Connect Claude in Settings to write summaries."))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -442,7 +442,7 @@ struct AskThisCall: View {
                     .foregroundStyle(saaa.dangerText)
             }
             HStack(spacing: Space.sm) {
-                TextField(model.hasAPIKey ? "Ask about this call…" : "Add a Claude API key to ask questions", text: $input)
+                TextField(model.hasAPIKey ? "Ask about this call…" : "Connect Claude in Settings to ask questions", text: $input)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .onSubmit { send(input) }
@@ -487,7 +487,7 @@ struct AskThisCall: View {
         let material = PromptComposer.ChatMaterial(
             title: record.displayTitle, startedAt: record.startedAt, transcript: record.transcript,
             summary: record.summary, notes: record.notes)
-        let stream = MeetingChat(service: AnthropicClient.keychain()).ask(
+        let stream = MeetingChat(service: AnthropicClient.relay()).ask(
             question, history: history, material: material, playbook: playbook, context: record.context)
         task = Task {
             var answer = ""

@@ -207,7 +207,7 @@ struct LivePanel: View {
                 .lineLimit(2)
             Spacer()
             if session.copilotOffReason != nil {
-                Button("Add key") { model.openHub(.settings) }
+                Button("Connect") { model.openHub(.settings) }
                     .buttonStyle(.plain)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(saaa.tideEmphasis)
@@ -391,7 +391,7 @@ struct LivePanel: View {
             Text(copilot == nil ? "Listening. Live answers are off." : "Ask anything, or tap an action.")
                 .font(.system(size: 15, weight: .semibold))
             Text(copilot == nil
-                 ? "The transcript and notes still work. Add a Claude API key in Settings for live answers."
+                 ? "The transcript still works. Connect Claude in Settings for live answers."
                  : "Answers stream in about a second. When they ask you something, ⌥⌘A answers it.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
@@ -416,7 +416,7 @@ struct LivePanel: View {
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 } else {
-                    Text(copilot == nil ? "Notes need a Claude API key." : "Notes build up as people talk; Saaa refreshes them every minute or so.")
+                    Text(copilot == nil ? "Notes need Claude. Connect it in Settings." : "Notes build up as people talk; Saaa refreshes them every minute or so.")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .padding(.top, Space.lg)

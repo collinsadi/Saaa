@@ -9,11 +9,13 @@ import Foundation
 import Observation
 import Transcription
 
-/// Claude API key entry, verification and storage, shared by setup and
-/// Settings. A key reaches the Keychain only after Claude accepts it.
+/// Connecting Claude through the Saaa relay, shared by setup and Settings.
+/// The pasted key goes to the relay once: it checks the key with Anthropic,
+/// seals it and hands back this Mac's access token. Nothing touches the
+/// Keychain, so there's never a password prompt.
 @MainActor
 @Observable
-final class ClaudeKeySetup {
+final class ClaudeConnectionSetup {
     enum State: Equatable {
         case idle
         case checking
@@ -22,66 +24,135 @@ final class ClaudeKeySetup {
     }
 
     var entry = ""
+    /// The relay address; Settings can point it at a self-hosted relay.
+    var serverText: String
     private(set) var state: State = .idle
-    /// The saved key, redacted for display.
-    private(set) var storedKey: String?
+    private(set) var connection: RelayConnection?
 
-    init() {
-        storedKey = KeychainKeyStore.shared.load().map(KeychainKeyStore.redacted)
+    @ObservationIgnored private let store: RelayConnectionStore
+
+    init(store: RelayConnectionStore = .shared) {
+        self.store = store
+        let current = store.load()
+        connection = current
+        serverText = (current?.server ?? SaaaRelay.defaultServer)?.absoluteString ?? ""
     }
 
-    var hasStoredKey: Bool { storedKey != nil }
-
-    var canSubmit: Bool {
-        state != .checking && KeychainKeyStore.looksLikeAPIKey(entry)
-    }
-
+    var isConnected: Bool { connection != nil }
     var isChecking: Bool { state == .checking }
-
     var isVerified: Bool {
         if case .verified = state { return true }
         return false
     }
 
-    /// Checks the pasted key with a tiny request on the live model, then saves it.
-    func verifyAndSave(onSaved: @escaping @MainActor () -> Void = {}) {
+    var serverHost: String {
+        connection?.server.host() ?? serverURL?.host() ?? serverText
+    }
+
+    var canSubmit: Bool {
+        state != .checking && ClaudeAPIKey.looksValid(entry) && serverURL != nil
+    }
+
+    private var serverURL: URL? {
+        guard let url = URL(string: serverText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme == "https", url.host() != nil else { return nil }
+        return url
+    }
+
+    /// Sends the key to the relay (or replaces it on the current account),
+    /// saves this Mac's token, then times one tiny request end to end.
+    func connect(onConnected: @escaping @MainActor () -> Void = {}) {
         let key = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard KeychainKeyStore.looksLikeAPIKey(key) else {
+        guard ClaudeAPIKey.looksValid(key) else {
             state = .failed("That doesn't look like a Claude API key. Keys start with sk-ant-.")
             return
         }
+        guard let server = serverURL else {
+            state = .failed(serverText.isEmpty
+                ? "Enter your Saaa server's address in Settings first."
+                : "The server address needs to start with https://.")
+            return
+        }
         state = .checking
+        let label = Host.current().localizedName ?? "Mac"
+        let store = self.store
+        let existing = connection
         Task {
             do {
-                let check = try await AnthropicClient(apiKey: key).verifyKey(model: ModelRole.live.modelID())
-                try KeychainKeyStore.shared.save(key)
+                let relay = SaaaRelay(server: server)
+                if let existing, existing.server == server {
+                    let account = try await relay.replaceKey(token: existing.token, apiKey: key)
+                    var updated = existing
+                    updated.keyHint = account.keyHint
+                    try store.save(updated)
+                    connection = updated
+                } else {
+                    let registration = try await relay.register(apiKey: key, label: label)
+                    try store.save(registration.connection)
+                    connection = registration.connection
+                }
                 entry = ""
-                storedKey = KeychainKeyStore.redacted(key)
-                state = .verified(Self.describe(check))
-                onSaved()
+                onConnected()
             } catch {
-                state = .failed(Self.message(for: error))
+                state = .failed(Self.message(for: error, host: server.host() ?? server.absoluteString))
+                return
+            }
+            do {
+                let check = try await AnthropicClient.relay(store).verifyKey(model: ModelRole.live.modelID())
+                state = .verified(Self.describe(check))
+            } catch {
+                state = .failed("Connected, but a test answer failed: \(Self.message(for: error, host: server.host() ?? ""))")
             }
         }
     }
 
-    /// Re-checks the saved key against the live model.
-    func testStored() {
+    /// Re-checks the connection end to end.
+    func test() {
         state = .checking
+        let store = self.store
+        let host = serverHost
         Task {
             do {
-                let check = try await AnthropicClient.keychain().verifyKey(model: ModelRole.live.modelID())
+                let check = try await AnthropicClient.relay(store).verifyKey(model: ModelRole.live.modelID())
                 state = .verified(Self.describe(check))
             } catch {
-                state = .failed(Self.message(for: error))
+                state = .failed(Self.message(for: error, host: host))
             }
         }
     }
 
-    func remove() {
-        try? KeychainKeyStore.shared.delete()
-        storedKey = nil
-        state = .idle
+    /// Signs this Mac out. The key stays on the server for your other devices.
+    func disconnect(onDone: @escaping @MainActor () -> Void = {}) {
+        guard let current = connection else { return }
+        let store = self.store
+        Task {
+            try? await SaaaRelay(server: current.server).signOut(token: current.token)
+            store.delete()
+            connection = nil
+            state = .idle
+            onDone()
+        }
+    }
+
+    /// Deletes the key from the server and signs every device out.
+    func deleteFromServer(onDone: @escaping @MainActor () -> Void = {}) {
+        guard let current = connection else { return }
+        state = .checking
+        let store = self.store
+        Task {
+            do {
+                try await SaaaRelay(server: current.server).deleteAccount(token: current.token)
+            } catch AnthropicError.relayUnauthorized {
+                // Already gone on the server.
+            } catch {
+                state = .failed(Self.message(for: error, host: current.server.host() ?? ""))
+                return
+            }
+            store.delete()
+            connection = nil
+            state = .idle
+            onDone()
+        }
     }
 
     private static func describe(_ check: KeyCheck) -> String {
@@ -94,17 +165,20 @@ final class ClaudeKeySetup {
         return String(format: "%.1f s", value)
     }
 
-    private static func message(for error: Error) -> String {
-        if let error = error as? AnthropicError {
-            if case .unauthorized = error {
-                return "Claude didn't accept that key. Check that you copied all of it."
-            }
+    private static func message(for error: Error, host: String) -> String {
+        guard let error = error as? AnthropicError else { return error.localizedDescription }
+        switch error {
+        case .unauthorized(let message) where message.contains("Anthropic"):
+            return message
+        case .unauthorized:
+            return "Anthropic didn't accept that key. Check that you copied all of it."
+        case .network:
+            return "Couldn't reach your Saaa server (\(host)). Check your connection."
+        case .invalidRequest(let message), .permissionDenied(let message), .server(_, let message):
+            return message
+        default:
             return error.userMessage
         }
-        if error is KeychainKeyStore.StoreError {
-            return "The key couldn't be saved to your Keychain."
-        }
-        return error.localizedDescription
     }
 }
 

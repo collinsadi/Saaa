@@ -26,7 +26,7 @@ struct SettingsPane: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .top, spacing: 0) {
-            PaneHeader("Settings", subtitle: "Everything stays on this Mac except transcript text sent to Claude with your key.")
+            PaneHeader("Settings", subtitle: "Audio stays on this Mac. Transcript text goes to Claude through your Saaa server only when the copilot works.")
                 .padding(.horizontal, 36)
                 .padding(.top, 28)
                 .padding(.bottom, Space.sm)
@@ -41,33 +41,37 @@ private struct ClaudeSection: View {
     @Bindable var model: AppModel
 
     @Environment(\.saaa) private var saaa
-    @State private var setup = ClaudeKeySetup()
+    @State private var setup = ClaudeConnectionSetup()
+    @State private var confirmDelete = false
 
     var body: some View {
         Section {
-            if let stored = setup.storedKey {
-                LabeledContent("API key") {
+            if let connection = setup.connection {
+                LabeledContent("Claude") {
                     HStack(spacing: Space.sm) {
-                        Text(stored)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.disabled)
-                        Button("Test") { setup.testStored() }
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(connection.keyHint)
+                                .font(.system(size: 12, design: .monospaced))
+                            Text("on \(connection.server.host() ?? connection.server.absoluteString)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                        .textSelection(.disabled)
+                        Button("Test") { setup.test() }
                             .disabled(setup.isChecking)
-                        Button("Remove", role: .destructive) {
-                            setup.remove()
-                            model.refreshKeyState()
+                        Button("Disconnect") {
+                            setup.disconnect { model.refreshKeyState() }
                         }
                     }
                 }
             }
-            LabeledContent(setup.hasStoredKey ? "Replace key" : "API key") {
+            LabeledContent(setup.isConnected ? "Replace key" : "API key") {
                 HStack(spacing: Space.sm) {
                     SecureField("sk-ant-…", text: $setup.entry)
                         .textFieldStyle(.roundedBorder)
                         .frame(minWidth: 220)
-                        .onSubmit(save)
-                    Button("Verify and save", action: save)
+                        .onSubmit(connect)
+                    Button(setup.isConnected ? "Replace" : "Connect", action: connect)
                         .disabled(!setup.canSubmit)
                 }
             }
@@ -77,7 +81,7 @@ private struct ClaudeSection: View {
             case .checking:
                 HStack(spacing: Space.sm) {
                     ProgressView().controlSize(.small)
-                    Text("Checking with Claude…").foregroundStyle(.secondary)
+                    Text("Checking with your Saaa server…").foregroundStyle(.secondary)
                 }
             case .verified(let message):
                 Label(message, systemImage: "checkmark.circle.fill")
@@ -86,6 +90,20 @@ private struct ClaudeSection: View {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(saaa.dangerText)
             }
+            LabeledContent("Server") {
+                TextField("https://", text: $setup.serverText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(maxWidth: 300)
+                    .disabled(setup.isConnected)
+                    .help(setup.isConnected ? "Disconnect to use a different server." : "The Saaa server that keeps your key.")
+            }
+            if setup.isConnected {
+                LabeledContent("Remove") {
+                    Button("Delete key from server…", role: .destructive) { confirmDelete = true }
+                        .disabled(setup.isChecking)
+                }
+            }
             if let url = URL(string: "https://console.anthropic.com/settings/keys") {
                 Link("Get an API key from the Claude Console", destination: url)
                     .font(.system(size: 12))
@@ -93,13 +111,20 @@ private struct ClaudeSection: View {
         } header: {
             Text("Claude")
         } footer: {
-            Text("The copilot, live notes, summaries and Ask this call use your own key. It's kept in your Keychain and sent only to Anthropic's API. Without a key, Saaa still records and transcribes.")
+            Text("Bring your own key. It's sent once to your Saaa server, which checks it with Anthropic, encrypts it and keeps it there. This Mac stores only an access token, so there are no Keychain prompts. Requests pass through the server on their way to Anthropic; the server doesn't keep what's in them.")
+        }
+        .confirmationDialog("Delete your key from the server?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete key", role: .destructive) {
+                setup.deleteFromServer { model.refreshKeyState() }
+            }
+        } message: {
+            Text("Every device using this key is signed out. You can connect again any time.")
         }
     }
 
-    private func save() {
+    private func connect() {
         guard setup.canSubmit else { return }
-        setup.verifyAndSave { model.refreshKeyState() }
+        setup.connect { model.refreshKeyState() }
     }
 }
 
@@ -445,10 +470,10 @@ private struct DataSection: View {
             }
             LabeledContent("Encryption") {
                 if model.encryptionHealthy {
-                    Label("Sealed with a key in your Keychain", systemImage: "lock.fill")
+                    Label("Sealed with a key in Saaa's folder", systemImage: "lock.fill")
                         .foregroundStyle(.secondary)
                 } else {
-                    Label("Keychain key unavailable", systemImage: "exclamationmark.triangle.fill")
+                    Label("Encryption key unavailable", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(saaa.dangerText)
                 }
             }

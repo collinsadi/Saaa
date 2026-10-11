@@ -3,22 +3,24 @@ import Foundation
 import Security
 import os
 
-/// AES-GCM encryption for call content at rest, keyed by a per-user symmetric
-/// key held in the login Keychain. Audio and transcripts never touch disk
-/// unencrypted once a session is archived.
+/// AES-GCM encryption for call content at rest. The 256-bit key lives in
+/// Saaa's own folder (`content.key`, mode 0600, readable only by this macOS
+/// account), so opening sessions never raises a Keychain prompt. Older
+/// versions kept it in the login Keychain; it moves to the file once.
 public struct EncryptionService: Sendable {
 
     private static let log = Logger(subsystem: "dev.collinsadi.saaa", category: "EncryptionService")
-    private static let keychainService = "dev.collinsadi.saaa.contentkey"
+    static let legacyKeychainService = "dev.collinsadi.saaa.contentkey"
+    static let keyFileName = "content.key"
 
     private let key: SymmetricKey
 
-    /// Loads (or creates on first use) the keychain-held key.
-    public init() throws {
-        self.key = try Self.loadOrCreateKey()
+    /// Loads the key from `root`, creating it on first use.
+    public init(root: URL = PersistenceModule.defaultRoot) throws {
+        self.key = try Self.loadOrCreateKey(root: root, legacy: Self.legacyKeychainKey)
     }
 
-    /// Test seam: explicit key, no keychain involved.
+    /// Test seam: explicit key, nothing on disk.
     public init(key: SymmetricKey) {
         self.key = key
     }
@@ -52,39 +54,62 @@ public struct EncryptionService: Sendable {
 
     // MARK: - Key management
 
-    private static func loadOrCreateKey() throws -> SymmetricKey {
+    /// The key file, else a one-time move of the legacy Keychain key, else a
+    /// new key. A Keychain read that fails for any reason other than "not
+    /// found" throws rather than minting a key that can't open old sessions.
+    static func loadOrCreateKey(
+        root: URL, legacy: () throws -> SymmetricKey?
+    ) throws -> SymmetricKey {
+        let url = root.appendingPathComponent(keyFileName)
+        if let data = try? Data(contentsOf: url) {
+            guard data.count == 32 else { throw EncryptionError.keyFileCorrupt }
+            return SymmetricKey(data: data)
+        }
+        let key = try legacy() ?? SymmetricKey(size: .bits256)
+        try writeKeyFile(key, to: url)
+        log.info("content key stored in Saaa's folder")
+        return key
+    }
+
+    static func writeKeyFile(_ key: SymmetricKey, to url: URL) throws {
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let data = key.withUnsafeBytes { Data($0) }
+        let temp = folder.appendingPathComponent(".content-\(UUID().uuidString).tmp")
+        guard FileManager.default.createFile(
+            atPath: temp.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+            throw EncryptionError.keyFileWrite
+        }
+        guard rename(temp.path, url.path) == 0 else {
+            try? FileManager.default.removeItem(at: temp)
+            throw EncryptionError.keyFileWrite
+        }
+    }
+
+    /// Reads the key older versions created in the login Keychain.
+    static func legacyKeychainKey() throws -> SymmetricKey? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
+            kSecAttrService as String: legacyKeychainService,
             kSecReturnData as String: true,
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecSuccess, let data = item as? Data, data.count == 32 {
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data, data.count == 32 else { return nil }
             return SymmetricKey(data: data)
-        }
-        guard status == errSecItemNotFound else {
+        case errSecItemNotFound:
+            return nil
+        default:
             throw EncryptionError.keychain(status)
         }
-        let newKey = SymmetricKey(size: .bits256)
-        let keyData = newKey.withUnsafeBytes { Data($0) }
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrLabel as String: "Saaa call-content encryption key",
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecValueData as String: keyData,
-        ]
-        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw EncryptionError.keychain(addStatus)
-        }
-        log.info("created content-encryption key in keychain")
-        return newKey
     }
 }
 
 public enum EncryptionError: Error, Equatable {
     case sealFailed
     case keychain(OSStatus)
+    case keyFileCorrupt
+    case keyFileWrite
 }

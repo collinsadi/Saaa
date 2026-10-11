@@ -146,12 +146,12 @@ struct HomePane: View {
             if !model.hasAPIKey {
                 setupRow(
                     symbol: "key.fill", title: "Connect Claude",
-                    detail: "Live answers, notes and summaries need your Claude API key.",
-                    action: "Add key") { model.openHub(.settings) }
+                    detail: "Live answers, notes and summaries need your Claude API key, kept on your Saaa server.",
+                    action: "Connect") { model.openHub(.settings) }
             }
             if !model.encryptionHealthy {
                 setupRow(
-                    symbol: "lock.trianglebadge.exclamationmark", title: "Keychain unavailable",
+                    symbol: "lock.trianglebadge.exclamationmark", title: "Encryption key unavailable",
                     detail: "Saaa couldn't read its encryption key. Sessions from this launch can't be reopened later.",
                     action: nil) {}
             }

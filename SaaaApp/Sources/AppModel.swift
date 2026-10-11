@@ -47,14 +47,15 @@ final class AppModel {
     let library: SessionLibrary
     let session: SessionController
     let detector: MeetingDetector
-    /// False when the Keychain key could not be read: sessions this run
+    /// False when the content key could not be read: sessions this run
     /// can't be reopened later, and the UI says so.
     let encryptionHealthy: Bool
 
     private(set) var playbooks: PlaybookLibrary
     private(set) var sessions: [SessionIndexEntry] = []
     private(set) var monthlyCost: Double = 0
-    private(set) var hasAPIKey = KeychainKeyStore.shared.hasKey
+    /// Claude is connected through the Saaa relay.
+    private(set) var hasAPIKey = RelayConnectionStore.shared.isConnected
 
     // Surfaces
     var hubPane: HubPane = .home
@@ -197,7 +198,7 @@ final class AppModel {
     // MARK: - Session
 
     func refreshKeyState() {
-        hasAPIKey = KeychainKeyStore.shared.hasKey
+        hasAPIKey = RelayConnectionStore.shared.isConnected
     }
 
     func startSession(playbook: Playbook? = nil, context: SessionContext? = nil) {

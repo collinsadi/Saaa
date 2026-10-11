@@ -33,8 +33,8 @@ A playbook tells the copilot who you are on this kind of call: instructions in y
 ## Privacy and data flow
 
 - **Audio never leaves your Mac.** Your microphone and the call app's audio are captured as two separate streams and transcribed by Apple's on-device speech model.
-- **Only text goes to Claude, with your own key.** When the copilot answers, writes notes, summarizes or answers Ask this call, Saaa sends transcript text, your playbook and your prep notes to the Anthropic API. Nothing is sent while the copilot is idle, and nothing goes to a server of ours. There isn't one.
-- **Encrypted at rest.** Transcripts, notes, summaries and playbooks are sealed with AES-GCM using a key kept in your Keychain. The API key also lives in the Keychain. Audio files are deleted once the transcript is saved unless you choose to keep them.
+- **Only text goes to Claude, through your Saaa server.** You bring your own Anthropic key. It's sent once to the Saaa relay, a small server you host (see [Server](Server/README.md)), which checks it with Anthropic, encrypts it with AES-256-GCM and keeps it. This Mac stores only an access token, so nothing lives in the Keychain and there are no password prompts. When the copilot answers, writes notes, summarizes or answers Ask this call, transcript text, your playbook and your prep notes pass through the relay to Anthropic. The relay doesn't log or keep them. Nothing is sent while the copilot is idle.
+- **Encrypted at rest.** Transcripts, notes, summaries and playbooks are sealed with AES-GCM on this Mac, with a key kept in Saaa's own folder that only your macOS account can read. Audio files are deleted once the transcript is saved unless you choose to keep them.
 - **No telemetry.** Logs record state changes and error codes, never call content.
 - **Consent is visible.** A recording indicator is always on screen while Saaa records, and nothing starts without you. Saaa reminds you to tell people and gives you a line to paste into the chat. Recording laws vary by place; telling people is your responsibility.
 - **Screen Privacy is your choice.** Off by default. When on, Saaa's windows are left out of screenshots and shared screens. It can't hide anything from a camera, and it doesn't replace telling people.
@@ -50,7 +50,7 @@ Get `Saaa.dmg` from the [latest release](https://github.com/collinsadi/Saaa/rele
 ## Requirements
 
 - Apple silicon Mac with macOS 26 or newer.
-- A Claude API key from the [Claude Console](https://console.anthropic.com/settings/keys). Without a key, Saaa still records and transcribes.
+- A Claude API key from the [Claude Console](https://console.anthropic.com/settings/keys), connected in Settings. It's kept on your Saaa relay; see [`Server/`](Server/README.md) to run your own. Without a key, Saaa still records and transcribes.
 - Xcode 27 or newer to build.
 
 ## Build and run
@@ -67,6 +67,12 @@ Tests live in each local package:
 
 ```sh
 for p in Packages/*/; do (cd "$p" && swift test); done
+```
+
+The relay has its own tests, run against a fake Anthropic:
+
+```sh
+cd Server && go test ./...
 ```
 
 The Claude integration tests stay off unless you opt in with your own key:
@@ -92,7 +98,7 @@ One app target over nine local Swift packages, Swift 6 with strict concurrency t
 | Package | Role |
 |---|---|
 | Core | Transcript, playbook, summary and usage models; question detection; redaction; Screen Privacy policy |
-| AnthropicKit | Streaming Messages API client, structured output, model catalog and pricing, Keychain key store |
+| AnthropicKit | Streaming Messages API client, structured output, model catalog and pricing, Saaa relay connection |
 | AudioCapture | Core Audio process taps and microphone capture, lock-free hot path, live 16 kHz sample stream |
 | Transcription | SpeechAnalyzer lanes per side, live transcript with echo guard, speech asset install, file transcription |
 | Copilot | Cache-shaped prompt composer, copilot engine, live notes, summaries, Ask this call |
@@ -100,6 +106,8 @@ One app target over nine local Swift packages, Swift 6 with strict concurrency t
 | CalendarContext | EventKit reader for current and upcoming meetings |
 | Persistence | AES-GCM sealing, session library and search, playbook store, export, migration |
 | DesignSystem | Tokens, Liquid Glass modifiers and shared components |
+
+The Saaa relay lives in [`Server/`](Server/README.md): a Go service, standard library only, that keeps each user's Anthropic key sealed and streams requests through.
 
 ## Contributing
 

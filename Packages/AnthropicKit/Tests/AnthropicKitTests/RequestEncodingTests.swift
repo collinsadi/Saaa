@@ -126,20 +126,74 @@ import Testing
     }
 }
 
-@Suite struct KeychainTests {
+@Suite struct RelayConnectionTests {
 
-    @Test func roundTripsAndRedacts() throws {
-        let store = KeychainKeyStore(service: "dev.collinsadi.saaa.tests.\(UUID().uuidString)", account: "k")
-        defer { try? store.delete() }
+    @Test func storeRoundTripsInAPrivateFile() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "saaa-relay-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = RelayConnectionStore(url: folder.appending(path: "connection.json"))
         #expect(store.load() == nil)
-        try store.save("  sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789-WXYZ \n")
-        #expect(store.load() == "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789-WXYZ")
-        try store.save("sk-ant-api03-replaced-0000000000000000000000000000-ABCD")
-        #expect(store.load()?.hasSuffix("ABCD") == true)
-        try store.delete()
-        #expect(!store.hasKey)
-        #expect(KeychainKeyStore.redacted("sk-ant-api03-abcdefghijklmnop-WXYZ") == "sk-ant-…WXYZ")
-        #expect(KeychainKeyStore.looksLikeAPIKey("sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"))
-        #expect(!KeychainKeyStore.looksLikeAPIKey("hello"))
+        #expect(!store.isConnected)
+        let connection = RelayConnection(
+            server: URL(string: "https://relay.example")!, token: "saaa_token", accountID: "acct_1",
+            keyHint: "sk-ant-…WXYZ", connectedAt: Date(timeIntervalSince1970: 1_800_000_000))
+        try store.save(connection)
+        #expect(store.load() == connection)
+        #expect(store.isConnected)
+        let attributes = try FileManager.default.attributesOfItem(atPath: store.url.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        var replaced = connection
+        replaced.token = "saaa_other"
+        try store.save(replaced)
+        #expect(store.load()?.token == "saaa_other")
+        store.delete()
+        #expect(store.load() == nil)
+    }
+
+    @Test func keyShapeAndRedaction() {
+        #expect(ClaudeAPIKey.redacted("sk-ant-api03-abcdefghijklmnop-WXYZ") == "sk-ant-…WXYZ")
+        #expect(ClaudeAPIKey.looksValid("sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"))
+        #expect(!ClaudeAPIKey.looksValid("hello"))
+    }
+
+    @Test func relayClientSendsTheDeviceTokenAsBearer() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "saaa-relay-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = RelayConnectionStore(url: folder.appending(path: "connection.json"))
+        try store.save(RelayConnection(
+            server: URL(string: "https://relay.example")!, token: "saaa_device", accountID: "acct_1", keyHint: "x"))
+        let transport = MockTransport.sse(documentedStream)
+        var configuration = AnthropicClient.relay(store).configuration
+        configuration.idleTimeout = 5
+        let client = AnthropicClient(configuration: configuration, transport: transport) { "saaa_device" }
+        for try await _ in client.streamText(sampleRequest) {}
+        let request = try #require(transport.requests.first)
+        #expect(request.url?.absoluteString == "https://relay.example/v1/messages")
+        #expect(request.value(forHTTPHeaderField: "authorization") == "Bearer saaa_device")
+        #expect(request.value(forHTTPHeaderField: "x-api-key") == nil)
+    }
+
+    @Test func relayTokenErrorsMapToReconnect() {
+        let body = #"{"type":"error","error":{"type":"relay_unauthorized","message":"unknown token"}}"#
+        #expect(AnthropicError.from(status: 401, body: body, headers: [:]) == .relayUnauthorized)
+        let anthropic = #"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#
+        #expect(AnthropicError.from(status: 401, body: anthropic, headers: [:]) == .unauthorized("invalid x-api-key"))
+    }
+
+    @Test func registerReturnsAConnection() async throws {
+        let reply = #"{"token":"saaa_new","account":{"id":"acct_9","key_hint":"sk-ant-…ABCD","devices":1,"created_at":"2026-10-11T09:00:00.123456789Z","updated_at":"2026-10-11T09:00:00Z"},"joined_existing":false,"verified_ms":412}"#
+        let transport = MockTransport([.head(status: 200, headers: [:]), .line(reply)])
+        let relay = SaaaRelay(server: URL(string: "https://relay.example")!, transport: transport)
+        let registration = try await relay.register(apiKey: " sk-ant-api03-key ", label: "Mac")
+        #expect(registration.connection.token == "saaa_new")
+        #expect(registration.connection.keyHint == "sk-ant-…ABCD")
+        #expect(registration.connection.server.absoluteString == "https://relay.example")
+        #expect(registration.account.createdAt != nil)
+        #expect(registration.verifiedIn == .milliseconds(412))
+        let request = try #require(transport.requests.first)
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/v1/register")
+        let sent = try #require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        #expect(sent.contains("\"api_key\":\"sk-ant-api03-key\""))
     }
 }

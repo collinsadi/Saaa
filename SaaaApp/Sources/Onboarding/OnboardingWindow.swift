@@ -57,7 +57,7 @@ private struct OnboardingView: View {
     @Environment(\.saaa) private var saaa
     @State private var step: OnboardingStep = .welcome
     @State private var permissions = PermissionCenter()
-    @State private var key = ClaudeKeySetup()
+    @State private var key = ClaudeConnectionSetup()
     @State private var speech = SpeechSetup()
     @State private var defaultID = Playbook.generalID
     @AppStorage(SaaaSettings.consentReminderKey) private var consentReminder = true
@@ -161,7 +161,7 @@ private struct OnboardingView: View {
 
     private var skipTitle: String? {
         switch step {
-        case .claude where !key.hasStoredKey: "Set up later"
+        case .claude where !key.isConnected: "Set up later"
         case .speech where speech.status != .installed && speech.progress == nil: "Later"
         default: nil
         }
@@ -174,8 +174,8 @@ private struct OnboardingView: View {
 
     private func advance() {
         switch step {
-        case .claude where !key.hasStoredKey && key.canSubmit:
-            key.verifyAndSave { [app] in
+        case .claude where !key.isConnected && key.canSubmit:
+            key.connect { [app] in
                 app.refreshKeyState()
                 step = .speech
             }
@@ -202,8 +202,8 @@ private struct OnboardingView: View {
             }
             VStack(alignment: .leading, spacing: Space.lg) {
                 FactRow(symbol: "waveform", title: "Audio stays on this Mac", detail: "Apple's on-device speech model writes the transcript.")
-                FactRow(symbol: "sparkles", title: "Only text goes to Claude", detail: "When the copilot helps, it sends transcript text to Claude with your own API key.")
-                FactRow(symbol: "lock.fill", title: "Everything saved is encrypted", detail: "Sessions are sealed with a key kept in your Keychain.")
+                FactRow(symbol: "sparkles", title: "Only text goes to Claude", detail: "When the copilot helps, transcript text goes to Claude through your Saaa server, using your own API key.")
+                FactRow(symbol: "lock.fill", title: "Everything saved is encrypted", detail: "Sessions are sealed with AES-256 on this Mac.")
                 FactRow(symbol: "person.2.wave.2.fill", title: "You tell people", detail: "Saaa reminds you to let others know, with a line you can paste into the chat.")
             }
         }
@@ -269,24 +269,25 @@ private struct OnboardingView: View {
                 "Connect Claude",
                 detail: "Live help, notes, summaries and Ask this call run on Claude with your own API key. Without one, Saaa still records and transcribes.")
             VStack(alignment: .leading, spacing: Space.md) {
-                if let stored = key.storedKey, key.entry.isEmpty {
+                if let connection = key.connection, key.entry.isEmpty {
                     HStack(spacing: Space.sm) {
-                        Image(systemName: "key.fill").foregroundStyle(.secondary)
-                        Text(stored).font(.system(size: 13, design: .monospaced))
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(saaa.successText)
+                        Text(connection.keyHint).font(.system(size: 13, design: .monospaced))
+                        Text("on \(key.serverHost)").font(.system(size: 12)).foregroundStyle(.secondary)
                         Spacer()
-                        Button("Test") { key.testStored() }
+                        Button("Test") { key.test() }
                             .buttonStyle(.glass)
                             .disabled(key.isChecking)
                     }
                 }
                 HStack(spacing: Space.sm) {
-                    SecureField(key.hasStoredKey ? "Paste a new key to replace it" : "Paste your API key (sk-ant-…)", text: $key.entry)
+                    SecureField(key.isConnected ? "Paste a new key to replace it" : "Paste your API key (sk-ant-…)", text: $key.entry)
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.large)
                         .onSubmit {
-                            if key.canSubmit { key.verifyAndSave { app.refreshKeyState() } }
+                            if key.canSubmit { key.connect { app.refreshKeyState() } }
                         }
-                    Button("Verify") { key.verifyAndSave { app.refreshKeyState() } }
+                    Button(key.isConnected ? "Replace" : "Connect") { key.connect { app.refreshKeyState() } }
                         .buttonStyle(.glass)
                         .controlSize(.large)
                         .disabled(!key.canSubmit)
@@ -298,6 +299,9 @@ private struct OnboardingView: View {
                 }
             }
             .saaaCard()
+            FactRow(
+                symbol: "lock.shield", title: "Your key stays off this Mac",
+                detail: "Saaa sends it once to your Saaa server\(key.serverHost.isEmpty ? "" : " (\(key.serverHost))"), which checks it with Anthropic, encrypts it and keeps it. This Mac keeps only an access token.")
             FactRow(
                 symbol: "dollarsign.circle", title: "You pay Anthropic directly",
                 detail: "With the default models, most hour-long calls cost a few cents. Settings shows what you've spent this month.")
@@ -312,7 +316,7 @@ private struct OnboardingView: View {
         case .checking:
             HStack(spacing: Space.sm) {
                 ProgressView().controlSize(.small)
-                Text("Checking with Claude…").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Checking with your Saaa server…").font(.system(size: 12)).foregroundStyle(.secondary)
             }
         case .verified(let message):
             Label(message, systemImage: "checkmark.circle.fill")

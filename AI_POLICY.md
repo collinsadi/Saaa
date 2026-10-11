@@ -6,9 +6,9 @@ Saaa accepts contributions written with or by AI agents. These rules exist becau
 
 1. Never weaken the privacy invariants:
    - No call content (audio, transcripts, copilot answers, notes, summaries, prep notes, knowledge files) in logs, analytics, crash reports, or any network request other than the documented Claude requests.
-   - The only permitted outbound traffic is the Anthropic Messages API, called with the user's own key when the user acts or an enabled copilot feature runs, plus Apple's speech asset downloads handled by macOS. No new endpoints, no telemetry, no update pings.
+   - The only permitted outbound traffic is the Saaa relay, which forwards to the Anthropic Messages API with the user's own key, when the user acts or an enabled copilot feature runs, plus Apple's speech asset downloads handled by macOS. No new endpoints, no telemetry, no update pings. The relay never logs or stores request or response content.
    - Audio never leaves the Mac. Encryption at rest must survive your change, and keeping audio stays an explicit opt-in.
-   - The API key lives only in the Keychain: never in defaults, files, logs, exports, or error messages.
+   - The API key never lives on the Mac. On the relay it is stored only sealed (AES-256-GCM under the server master key), and device tokens are stored only as hashes. Keys and tokens never appear in logs, exports, or error messages.
 2. Never record without the user starting it. Meeting detection may suggest a session; only the user starts one. The visible recording indicator and the consent reminder stay.
 3. Screen Privacy stays a standing, user-controlled setting, off by default. Never tie it to detecting a capture or screen share, and never build features meant to conceal Saaa from the other people on a call. No candidate-side interview or exam modes.
 4. Never touch the real-time audio callback without honoring its contract: no allocation, no locks, no Objective-C dispatch, no logging. Ring buffer writes and atomics only.

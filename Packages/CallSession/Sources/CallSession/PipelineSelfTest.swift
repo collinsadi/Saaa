@@ -9,7 +9,7 @@ import Transcription
 /// (`--selftest-pipeline`) to measure word-to-answer latency on this Mac.
 public enum PipelineSelfTest {
 
-    public static func run(client: AnthropicClient = .keychain()) async throws -> String {
+    public static func run(client: AnthropicClient = .relay()) async throws -> String {
         var report: [String] = []
         let question = "Hi, thanks for making time. Quick question before we start: how does your pricing work for a team of forty people?"
         let samples = try await SpeechSelfTest.synthesize(question)

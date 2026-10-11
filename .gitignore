@@ -34,3 +34,5 @@ theme/
 
 # Relay data never belongs in git
 Server/data/
+# The relay address is injected at packaging time, never committed
+.relay-url

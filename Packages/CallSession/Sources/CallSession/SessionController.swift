@@ -71,7 +71,7 @@ public final class SessionController {
     public let library: SessionLibrary
     @ObservationIgnored private let client: AnthropicClient
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private let keyStore: KeychainKeyStore
+    @ObservationIgnored private let connection: RelayConnectionStore
     @ObservationIgnored private let calendar = CalendarReader()
     /// Current playbooks (the app rebinds this once its model exists).
     @ObservationIgnored public var playbookProvider: @MainActor () -> PlaybookLibrary
@@ -91,14 +91,14 @@ public final class SessionController {
 
     public init(
         library: SessionLibrary,
-        client: AnthropicClient = .keychain(),
-        keyStore: KeychainKeyStore = .shared,
+        client: AnthropicClient = .relay(),
+        connection: RelayConnectionStore = .shared,
         defaults: UserDefaults = .standard,
         playbooks: @escaping @MainActor () -> PlaybookLibrary
     ) {
         self.library = library
         self.client = client
-        self.keyStore = keyStore
+        self.connection = connection
         self.defaults = defaults
         self.playbookProvider = playbooks
     }
@@ -112,7 +112,8 @@ public final class SessionController {
         }
     }
 
-    public var hasAPIKey: Bool { keyStore.hasKey }
+    /// Claude is connected through the Saaa relay.
+    public var hasAPIKey: Bool { connection.isConnected }
 
     // MARK: - Start / stop
 
@@ -277,7 +278,7 @@ public final class SessionController {
         phase = .live
         Self.log.info("session live (\(self.playbook.id, privacy: .public))")
 
-        if keyStore.hasKey {
+        if connection.isConnected {
             let engine = CopilotEngine(
                 playbook: playbook, context: context, service: client, defaults: defaults,
                 transcript: { [weak self] in self?.transcript ?? LiveTranscript() },
@@ -285,7 +286,7 @@ public final class SessionController {
             copilot = engine
             engine.prewarm()
         } else {
-            copilotOffReason = "Add your Claude API key in Settings to get live answers."
+            copilotOffReason = "Connect Claude in Settings to get live answers."
         }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -391,7 +392,7 @@ public final class SessionController {
         phase = .idle
         Self.log.info("session sealed")
 
-        if SaaaSettings.autoSummary(defaults), keyStore.hasKey, !record.transcript.segments.isEmpty {
+        if SaaaSettings.autoSummary(defaults), connection.isConnected, !record.transcript.segments.isEmpty {
             summarize(record)
         }
     }
@@ -480,7 +481,7 @@ public final class SessionController {
                 }
                 self?.imports[id] = nil
                 self?.onLibraryChange?()
-                if let self, self.keyStore.hasKey, !record.transcript.segments.isEmpty {
+                if let self, self.connection.isConnected, !record.transcript.segments.isEmpty {
                     self.summarize(record)
                 }
             } catch {

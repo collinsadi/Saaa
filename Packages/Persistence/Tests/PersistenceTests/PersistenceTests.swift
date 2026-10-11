@@ -197,3 +197,55 @@ func sampleRecord(title: String = "Acme renewal", minutesAgo: Double = 10) -> Se
         #expect(name.hasSuffix(".md"))
     }
 }
+
+@Suite("Content key file")
+struct ContentKeyFileTests {
+
+    private func folder() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("saaa-key-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func bytes(_ key: SymmetricKey) -> Data {
+        key.withUnsafeBytes { Data($0) }
+    }
+
+    @Test func createsAPrivateKeyFileAndReusesIt() throws {
+        let root = folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try EncryptionService.loadOrCreateKey(root: root, legacy: { nil })
+        let url = root.appendingPathComponent(EncryptionService.keyFileName)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        let second = try EncryptionService.loadOrCreateKey(root: root, legacy: { Issue.record("legacy read again"); return nil })
+        #expect(bytes(first) == bytes(second))
+    }
+
+    @Test func movesTheLegacyKeychainKeyOnce() throws {
+        let root = folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = SymmetricKey(size: .bits256)
+        let loaded = try EncryptionService.loadOrCreateKey(root: root, legacy: { legacy })
+        #expect(bytes(loaded) == bytes(legacy))
+        let data = try Data(contentsOf: root.appendingPathComponent(EncryptionService.keyFileName))
+        #expect(data == bytes(legacy))
+    }
+
+    @Test func aFailedKeychainReadNeverMintsANewKey() throws {
+        let root = folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(throws: EncryptionError.keychain(-128)) {
+            try EncryptionService.loadOrCreateKey(root: root, legacy: { throw EncryptionError.keychain(-128) })
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(EncryptionService.keyFileName).path))
+    }
+
+    @Test func aDamagedKeyFileIsReported() throws {
+        let root = folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: root.appendingPathComponent(EncryptionService.keyFileName))
+        #expect(throws: EncryptionError.keyFileCorrupt) {
+            try EncryptionService.loadOrCreateKey(root: root, legacy: { nil })
+        }
+    }
+}

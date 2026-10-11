@@ -39,22 +39,40 @@ public struct KeyCheck: Sendable, Equatable {
 }
 
 /// Claude Messages API client: SSE streaming, non-streaming, JSON-schema
-/// structured output, key verification. Stateless and Sendable; the key is
-/// read per request so a key change applies immediately.
+/// structured output, key verification. Talks to Anthropic directly with an
+/// API key, or to a Saaa relay with a device token (the app's default).
+/// Stateless and Sendable; credentials are read per request so a change
+/// applies immediately.
 public struct AnthropicClient: Sendable {
 
     public struct Configuration: Sendable {
+        /// How the credential is sent.
+        public enum Authorization: Sendable, Equatable {
+            /// Anthropic directly: `x-api-key`.
+            case apiKey
+            /// A Saaa relay: `Authorization: Bearer <device token>`.
+            case bearer
+        }
+
         public var baseURL: URL
+        /// When set, resolves the base URL per request (the relay address
+        /// can change in Settings while clients live on).
+        public var baseURLProvider: (@Sendable () -> URL)?
+        public var authorization: Authorization
         public var apiVersion: String
         /// Idle timeout between bytes.
         public var idleTimeout: TimeInterval
 
         public init(
             baseURL: URL = URL(string: "https://api.anthropic.com")!,
+            baseURLProvider: (@Sendable () -> URL)? = nil,
+            authorization: Authorization = .apiKey,
             apiVersion: String = "2023-06-01",
             idleTimeout: TimeInterval = 30
         ) {
             self.baseURL = baseURL
+            self.baseURLProvider = baseURLProvider
+            self.authorization = authorization
             self.apiVersion = apiVersion
             self.idleTimeout = idleTimeout
         }
@@ -64,7 +82,7 @@ public struct AnthropicClient: Sendable {
 
     private static let log = Logger(subsystem: "dev.collinsadi.saaa", category: "AnthropicClient")
 
-    private let configuration: Configuration
+    let configuration: Configuration
     private let transport: any HTTPTransport
     private let keyProvider: KeyProvider
 
@@ -87,14 +105,16 @@ public struct AnthropicClient: Sendable {
         self.init(configuration: configuration, transport: transport) { apiKey }
     }
 
-    /// The app's client: the key comes from the Keychain on every request.
-    public static func keychain(
-        _ store: KeychainKeyStore = .shared,
-        configuration: Configuration = Configuration()
-    ) -> AnthropicClient {
-        AnthropicClient(configuration: configuration) {
-            guard let key = store.load(), !key.isEmpty else { throw AnthropicError.missingAPIKey }
-            return key
+    /// The app's client: requests go through the Saaa relay, which holds
+    /// the user's Anthropic key sealed. The Mac sends only its device token,
+    /// read from ``RelayConnectionStore`` on each request.
+    public static func relay(_ store: RelayConnectionStore = .shared) -> AnthropicClient {
+        let configuration = Configuration(
+            baseURLProvider: { store.load()?.server ?? SaaaRelay.defaultServer ?? SaaaRelay.unconfigured },
+            authorization: .bearer)
+        return AnthropicClient(configuration: configuration) {
+            guard let token = store.load()?.token, !token.isEmpty else { throw AnthropicError.missingAPIKey }
+            return token
         }
     }
 
@@ -265,12 +285,15 @@ public struct AnthropicClient: Sendable {
     ) throws -> URLRequest {
         let key = try keyProvider().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw AnthropicError.missingAPIKey }
-        var url = configuration.baseURL.appending(path: path)
+        var url = (configuration.baseURLProvider?() ?? configuration.baseURL).appending(path: path)
         if !query.isEmpty { url.append(queryItems: query) }
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.timeoutInterval = configuration.idleTimeout
-        urlRequest.setValue(key, forHTTPHeaderField: "x-api-key")
+        switch configuration.authorization {
+        case .apiKey: urlRequest.setValue(key, forHTTPHeaderField: "x-api-key")
+        case .bearer: urlRequest.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
+        }
         urlRequest.setValue(configuration.apiVersion, forHTTPHeaderField: "anthropic-version")
         if body != nil {
             urlRequest.setValue("application/json", forHTTPHeaderField: "content-type")

@@ -25,7 +25,7 @@ Thanks for helping. Saaa is a native macOS app with a strict privacy posture; co
 
 5. Audio capture behavior can only be fully verified on real hardware from a user-launched app at a stable path (copy to Applications and launch it yourself). Capture checks run from shells or scripts can report false negatives because macOS attributes the permission to the terminal.
 
-6. The app has headless self-tests that run inside its own process and write a report: `Saaa --selftest-transcribe <dir>` (synthesized speech through the live transcriber), `--selftest-pipeline <dir>` (speech to transcript to a streamed Claude answer, needs a key in the Keychain) and `--selftest-capture <dir>` (four seconds through the live audio stream).
+6. The app has headless self-tests that run inside its own process and write a report: `Saaa --selftest-transcribe <dir>` (synthesized speech through the live transcriber), `--selftest-pipeline <dir>` (speech to transcript to a streamed Claude answer through the relay, needs Claude connected in Settings) and `--selftest-capture <dir>` (four seconds through the live audio stream).
 
 ## Ground rules
 
@@ -46,7 +46,7 @@ Thanks for helping. Saaa is a native macOS app with a strict privacy posture; co
 
 ## Where things live
 
-Nine local Swift packages behind the app target: Core (shared models and policies), AnthropicKit (Claude client and Keychain key), AudioCapture (capture engine), Transcription (SpeechAnalyzer lanes and the live transcript), Copilot (prompts, live answers, notes, summaries, Ask this call), CallSession (lifecycle, hotkeys, meeting detection), CalendarContext (EventKit), Persistence (sealing, library, playbooks, export) and DesignSystem (tokens, glass and components). The app target holds the island, live panel, hub, prep sheet and onboarding.
+Nine local Swift packages behind the app target: Core (shared models and policies), AnthropicKit (Claude client and the relay connection), AudioCapture (capture engine), Transcription (SpeechAnalyzer lanes and the live transcript), Copilot (prompts, live answers, notes, summaries, Ask this call), CallSession (lifecycle, hotkeys, meeting detection), CalendarContext (EventKit), Persistence (sealing, library, playbooks, export) and DesignSystem (tokens, glass and components). The app target holds the island, live panel, hub, prep sheet and onboarding. `Server/` is the Saaa relay (Go): run `go test ./...` there for changes to it.
 
 ## AI-assisted contributions
 

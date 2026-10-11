@@ -25,6 +25,16 @@ echo "== stage"
 rm -rf dist && mkdir dist
 cp -R "$APP" dist/Saaa.app
 
+echo "== relay address (injected here, never committed)"
+RELAY_URL="${SAAA_RELAY_URL:-}"
+if [ -z "$RELAY_URL" ] && [ -f .relay-url ]; then RELAY_URL=$(tr -d '[:space:]' < .relay-url); fi
+if [ -n "$RELAY_URL" ]; then
+  plutil -replace SaaaRelayURL -string "$RELAY_URL" dist/Saaa.app/Contents/Info.plist
+  echo "set"
+else
+  echo "none: users enter their server in Settings"
+fi
+
 echo "== sign (inside out)"
 for framework in dist/Saaa.app/Contents/Frameworks/*.framework; do
   [ -e "$framework" ] || continue
