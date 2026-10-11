@@ -17,6 +17,8 @@ public actor SessionLibrary {
     public nonisolated let root: URL
     private let encryption: EncryptionService
     private var index: [SessionIndexEntry]?
+    /// Every session as one search index for Memory; rebuilt after changes.
+    private var memory: MemoryIndex?
 
     public init(root: URL = PersistenceModule.defaultRoot, encryption: EncryptionService) {
         self.root = root
@@ -54,6 +56,19 @@ public actor SessionLibrary {
             if let summary = record.summary, summary.markdown().lowercased().contains(needle) { return true }
             return record.context.participants.lowercased().contains(needle)
         }
+    }
+
+    /// Memory: every session's summary, prep and transcript as a search
+    /// index, built here on the Mac and kept until the library changes.
+    /// Unreadable archives are skipped.
+    public func memoryIndex() -> MemoryIndex {
+        if let memory { return memory }
+        let sources = entries().compactMap { entry in
+            (try? readRecord(folder: entry.folder)).map(MemorySource.init(record:))
+        }
+        let built = MemoryIndex(sources: sources)
+        memory = built
+        return built
     }
 
     /// Cost of sessions started in the month containing `date`.
@@ -120,6 +135,7 @@ public actor SessionLibrary {
         }
         try? FileManager.default.removeItem(at: indexURL)
         index = []
+        memory = nil
     }
 
     // MARK: - Migration
@@ -161,6 +177,7 @@ public actor SessionLibrary {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try encryption.encrypt(entries, to: indexURL)
         index = entries
+        memory = nil
     }
 
     private func readRecord(folder: String) throws -> SessionRecord {
@@ -242,5 +259,46 @@ struct LegacyArchive: Decodable {
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+}
+
+extension MemorySource {
+    /// What Memory searches in a session: the summary (or the live notes
+    /// when there's no summary yet), the prep and the transcript. Coaching
+    /// feedback and the copilot's answers stay out.
+    public init(record: SessionRecord) {
+        var summary: [String] = []
+        if let written = record.summary {
+            if !written.tldr.isEmpty { summary.append("TL;DR: \(written.tldr)") }
+            summary += written.keyPoints.map { "Key point: \($0)" }
+            summary += written.decisions.map { "Decision: \($0)" }
+            summary += written.actionItems.map { item in
+                var line = "Action item: \(item.text)"
+                let tags = [item.owner, item.due.map { "due \($0)" }].compactMap { $0 }
+                if !tags.isEmpty { line += " (\(tags.joined(separator: ", ")))" }
+                if item.done { line += " [done]" }
+                return line
+            }
+            summary += written.openQuestions.map { "Open question: \($0)" }
+            for section in written.sections {
+                summary += section.bullets.map { "\(section.title): \($0)" }
+            }
+            if let checklist = written.checklist {
+                summary += checklist.filter(\.covered).map { "Covered \($0.item): \($0.evidence)" }
+            }
+        } else if let notes = record.notes {
+            summary += notes.keyPoints.map { "Key point: \($0)" }
+            summary += notes.decisions.map { "Decision: \($0)" }
+            summary += notes.actionItems.map { "Action item: \($0)" }
+            summary += notes.openQuestions.map { "Open question: \($0)" }
+        }
+        var prep: [String] = []
+        let goal = record.context.goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !goal.isEmpty { prep.append("Goal: \(goal)") }
+        let notes = record.context.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !notes.isEmpty { prep.append("Prep notes: \(notes)") }
+        self.init(
+            id: record.id, title: record.displayTitle, startedAt: record.startedAt, playbookName: record.playbookName,
+            participants: record.context.participants, summary: summary, prep: prep, segments: record.transcript.segments)
     }
 }

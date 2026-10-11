@@ -164,6 +164,41 @@ func sampleRecord(title: String = "Acme renewal", minutesAgo: Double = 10) -> Se
     }
 }
 
+@Suite struct MemoryLibraryTests {
+
+    @Test func memorySearchesEverySessionAndNoticesNewOnes() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = SessionLibrary(root: root, encryption: testKey)
+        let acme = sampleRecord()
+        try await library.save(acme, folder: try await library.makeFolder(startedAt: acme.startedAt).name)
+
+        let first = await library.memoryIndex()
+        #expect(first.sessionCount == 1)
+        let hits = first.search("SSO pricing")
+        #expect(hits.contains { $0.sessionID == acme.id && $0.chunk.text.contains("How does SSO pricing work?") })
+        #expect(hits.contains { $0.chunk.kind == .summary && $0.chunk.text.contains("Action item: Send the trial link (Me)") })
+
+        var globex = sampleRecord(title: "Globex pilot", minutesAgo: 5)
+        globex.id = UUID()
+        globex.summary = nil
+        globex.notes = LiveNotes(decisions: ["Two week pilot"])
+        try await library.save(globex, folder: try await library.makeFolder(startedAt: globex.startedAt, suffix: "b").name)
+        let second = await library.memoryIndex()
+        #expect(second.sessionCount == 2)
+        #expect(second.search("pilot").contains { $0.sessionID == globex.id && $0.chunk.text.contains("Decision: Two week pilot") })
+    }
+
+    @Test func coachingAndCopilotAnswersStayOutOfMemory() {
+        var record = sampleRecord()
+        record.summary?.coaching = CoachingFeedback(wentWell: ["Calm opener"], tryNext: ["Slow down"])
+        let source = MemorySource(record: record)
+        #expect(!source.summary.joined().contains("Slow down"))
+        #expect(!source.summary.joined().contains("SSO is included."))
+        #expect(source.participants == "Dana Lee")
+    }
+}
+
 @Suite struct ExporterTests {
 
     @Test func markdownHonorsOptions() {
