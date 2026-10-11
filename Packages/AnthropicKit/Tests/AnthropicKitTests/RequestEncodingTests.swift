@@ -190,6 +190,53 @@ import Testing
         #expect(AnthropicError.from(status: 401, body: anthropic, headers: [:]) == .unauthorized("invalid x-api-key"))
     }
 
+    @Test func aSpentAllowanceIsItsOwnError() {
+        let body = #"{"type":"error","error":{"type":"quota_exceeded","message":"You've used this month's hosted allowance. It resets on November 1."}}"#
+        let error = AnthropicError.from(status: 402, body: body, headers: [:])
+        #expect(error == .quotaExceeded("You've used this month's hosted allowance. It resets on November 1."))
+        #expect(error.userMessage.hasPrefix("You've used this month's hosted allowance"))
+        #expect(!error.isRetryable)
+        #expect(AnthropicError.from(status: 402, body: "", headers: [:]).userMessage == "You've used this month's allowance on your Saaa server.")
+    }
+
+    @Test func joiningWithAnInviteMakesAHostedConnection() async throws {
+        let reply = #"{"token":"saaa_hosted","account":{"id":"acct_h","kind":"hosted","plan":"beta","key_hint":"Hosted by Saaa","devices":1},"joined_existing":false,"verified_ms":0}"#
+        let transport = MockTransport([.head(status: 200, headers: [:]), .line(reply)])
+        let relay = SaaaRelay(server: URL(string: "https://relay.example")!, transport: transport)
+        let registration = try await relay.joinHosted(inviteCode: " SAAA-7K2M-Q9XD ", label: "Mac")
+        #expect(registration.connection.isHosted)
+        #expect(registration.connection.plan == "beta")
+        #expect(registration.account.isHosted)
+        let request = try #require(transport.requests.first)
+        #expect(request.url?.path == "/v1/hosted/join")
+        let sent = try #require(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        #expect(sent.contains("\"invite_code\":\"SAAA-7K2M-Q9XD\""))
+    }
+
+    @Test func usageDecodesBothKinds() async throws {
+        let hosted = #"{"period":"2026-10","kind":"hosted","plan":"beta","requests":12,"input_tokens":1000,"output_tokens":200,"cache_read_tokens":20000,"cache_write_tokens":500,"cost_usd":0.0012,"budget_usd":5,"remaining_usd":4.9988,"resets_at":"2026-11-01T00:00:00Z"}"#
+        let transport = MockTransport([.head(status: 200, headers: [:]), .line(hosted)])
+        let usage = try await SaaaRelay(server: URL(string: "https://relay.example")!, transport: transport).usage(token: "saaa_x")
+        #expect(usage.requests == 12)
+        #expect(usage.budgetUsd == 5)
+        #expect(usage.resetsAt != nil)
+        #expect(transport.requests.first?.value(forHTTPHeaderField: "authorization") == "Bearer saaa_x")
+        let byok = #"{"period":"2026-10","kind":"byok","requests":3,"input_tokens":1,"output_tokens":2,"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.5,"budget_usd":null,"remaining_usd":null,"resets_at":"2026-11-01T00:00:00Z"}"#
+        let plain = MockTransport([.head(status: 200, headers: [:]), .line(byok)])
+        let own = try await SaaaRelay(server: URL(string: "https://relay.example")!, transport: plain).usage(token: "saaa_x")
+        #expect(own.budgetUsd == nil)
+        #expect(own.costUsd == 0.5)
+    }
+
+    @Test func connectionsSavedBeforeHostingStillLoad() throws {
+        let old = #"{"accountID":"acct_1","connectedAt":"2026-10-01T09:00:00Z","keyHint":"sk-ant-…ABCD","server":"https://relay.example","token":"saaa_1"}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let connection = try decoder.decode(RelayConnection.self, from: Data(old.utf8))
+        #expect(!connection.isHosted)
+        #expect(connection.kind == nil)
+    }
+
     @Test func registerReturnsAConnection() async throws {
         let reply = #"{"token":"saaa_new","account":{"id":"acct_9","key_hint":"sk-ant-…ABCD","devices":1,"created_at":"2026-10-11T09:00:00.123456789Z","updated_at":"2026-10-11T09:00:00Z"},"joined_existing":false,"verified_ms":412}"#
         let transport = MockTransport([.head(status: 200, headers: [:]), .line(reply)])

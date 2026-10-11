@@ -7,17 +7,28 @@ public struct RelayConnection: Codable, Sendable, Equatable {
     public var server: URL
     public var token: String
     public var accountID: String
-    /// `sk-ant-…a1B2`, for display.
+    /// `sk-ant-…a1B2`, or "Hosted by Saaa", for display.
     public var keyHint: String
     public var connectedAt: Date
+    /// "hosted" for an account that uses the server's key; nil or "byok"
+    /// for the user's own key (connections saved before hosting had none).
+    public var kind: String?
+    public var plan: String?
 
-    public init(server: URL, token: String, accountID: String, keyHint: String, connectedAt: Date = .now) {
+    public init(
+        server: URL, token: String, accountID: String, keyHint: String, connectedAt: Date = .now,
+        kind: String? = nil, plan: String? = nil
+    ) {
         self.server = server
         self.token = token
         self.accountID = accountID
         self.keyHint = keyHint
         self.connectedAt = connectedAt
+        self.kind = kind
+        self.plan = plan
     }
+
+    public var isHosted: Bool { kind == "hosted" }
 }
 
 /// Keeps the ``RelayConnection`` in a small file only this user can read
@@ -115,10 +126,38 @@ public struct SaaaRelay: Sendable {
 
     public struct Account: Sendable, Equatable, Decodable {
         public var id: String
+        /// "byok" or "hosted"; older servers leave it out.
+        public var kind: String?
+        public var plan: String?
         public var keyHint: String
         public var devices: Int
         public var createdAt: Date?
         public var updatedAt: Date?
+
+        public var isHosted: Bool { kind == "hosted" }
+    }
+
+    /// This month's use on the server: counts and cost, never content. A
+    /// hosted account also has its allowance.
+    public struct Usage: Sendable, Equatable, Decodable {
+        public var period: String
+        public var kind: String
+        public var plan: String?
+        public var requests: Int
+        public var inputTokens: Int
+        public var outputTokens: Int
+        public var cacheReadTokens: Int
+        public var cacheWriteTokens: Int
+        public var costUsd: Double
+        public var budgetUsd: Double?
+        public var remainingUsd: Double?
+        public var resetsAt: Date?
+    }
+
+    /// A one-time code another Mac enters to join a hosted account.
+    public struct LinkCode: Sendable, Equatable, Decodable {
+        public var linkCode: String
+        public var expiresIn: Int
     }
 
     public struct Registration: Sendable, Equatable {
@@ -145,16 +184,52 @@ public struct SaaaRelay: Sendable {
             let api_key: String
             let label: String
         }
-        struct Reply: Decodable {
-            let token: String
-            let account: Account
-            let joinedExisting: Bool
-            let verifiedMs: Int
-        }
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let reply: Reply = try await call("POST", "v1/register", token: nil, body: Body(api_key: key, label: label))
+        let reply: RegistrationReply = try await call("POST", "v1/register", token: nil, body: Body(api_key: key, label: label))
+        return registration(reply)
+    }
+
+    /// Opens a hosted account with an invite code: no key of your own.
+    public func joinHosted(inviteCode: String, label: String) async throws -> Registration {
+        struct Body: Encodable {
+            let invite_code: String
+            let label: String
+        }
+        let code = inviteCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return registration(try await call("POST", "v1/hosted/join", token: nil, body: Body(invite_code: code, label: label)))
+    }
+
+    /// Adds this Mac to a hosted account with a code from another Mac.
+    public func joinHosted(linkCode: String, label: String) async throws -> Registration {
+        struct Body: Encodable {
+            let link_code: String
+            let label: String
+        }
+        let code = linkCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        return registration(try await call("POST", "v1/hosted/join", token: nil, body: Body(link_code: code, label: label)))
+    }
+
+    /// A code, good for ten minutes, that adds another Mac to this hosted account.
+    public func linkCode(token: String) async throws -> LinkCode {
+        try await call("POST", "v1/account/link", token: token, body: Optional<String>.none)
+    }
+
+    /// This month's counts and cost on the server.
+    public func usage(token: String) async throws -> Usage {
+        try await call("GET", "v1/usage", token: token, body: Optional<String>.none)
+    }
+
+    private struct RegistrationReply: Decodable {
+        let token: String
+        let account: Account
+        let joinedExisting: Bool
+        let verifiedMs: Int
+    }
+
+    private func registration(_ reply: RegistrationReply) -> Registration {
         let connection = RelayConnection(
-            server: server, token: reply.token, accountID: reply.account.id, keyHint: reply.account.keyHint)
+            server: server, token: reply.token, accountID: reply.account.id, keyHint: reply.account.keyHint,
+            kind: reply.account.kind, plan: reply.account.plan)
         return Registration(
             connection: connection, account: reply.account, joinedExisting: reply.joinedExisting,
             verifiedIn: .milliseconds(reply.verifiedMs))

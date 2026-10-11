@@ -14,6 +14,8 @@ public enum AnthropicError: Error, Equatable, Sendable {
     case permissionDenied(String)
     /// 400/404/413: the request itself is wrong (bad model id, too large...).
     case invalidRequest(String)
+    /// 402 from the Saaa relay: a hosted account used this month's allowance.
+    case quotaExceeded(String)
     /// 429: rate limited. `retryAfter` seconds when the header was present.
     case rateLimited(retryAfter: Int?)
     /// 529 or a mid-stream `overloaded_error`.
@@ -44,6 +46,8 @@ public enum AnthropicError: Error, Equatable, Sendable {
         case .unauthorized: "Claude rejected the API key. Connect a new one in Settings."
         case .relayUnauthorized: "This Mac isn't connected to your Saaa server anymore. Connect again in Settings."
         case .permissionDenied: "This API key can't use that model."
+        case .quotaExceeded(let message):
+            message.isEmpty ? "You've used this month's allowance on your Saaa server." : message
         case .invalidRequest(let message): "Claude couldn't take that request (\(message.prefix(80)))."
         case .rateLimited(let after):
             after.map { "Rate limited. Ready again in \($0)s." } ?? "Rate limited. Try again shortly."
@@ -63,6 +67,7 @@ public enum AnthropicError: Error, Equatable, Sendable {
         switch status {
         case 401 where parsed?.type == "relay_unauthorized": return .relayUnauthorized
         case 401: return .unauthorized(message)
+        case 402: return .quotaExceeded(parsed?.message ?? "")
         case 403: return .permissionDenied(message)
         case 400, 404, 413: return .invalidRequest(message)
         case 429:
@@ -81,6 +86,7 @@ public enum AnthropicError: Error, Equatable, Sendable {
         case "rate_limit_error": .rateLimited(retryAfter: nil)
         case "authentication_error": .unauthorized(message)
         case "permission_error": .permissionDenied(message)
+        case "quota_exceeded": .quotaExceeded(message)
         case "invalid_request_error", "not_found_error", "request_too_large": .invalidRequest(message)
         case "api_error": .server(status: 500, message: message)
         default: .api(status: 200, type: type, message: message)
