@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -92,6 +93,24 @@ func hashCode(code string) string {
 
 func invitesPath(dataDir string) string { return filepath.Join(dataDir, "invites.json") }
 
+// lockInvites holds an exclusive file lock on invites.json's neighbor, so
+// `saaa-relay invite` and the running server never interleave their read
+// and write of the file. The returned function lets go.
+func lockInvites(dataDir string) (func(), error) {
+	file, err := os.OpenFile(filepath.Join(dataDir, "invites.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return func() {
+		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		file.Close()
+	}, nil
+}
+
 func loadInvites(dataDir string) (*inviteFile, error) {
 	raw, err := os.ReadFile(invitesPath(dataDir))
 	if errors.Is(err, os.ErrNotExist) {
@@ -123,6 +142,11 @@ func saveInvites(dataDir string, file *inviteFile) error {
 func CreateInvite(dataDir, plan string, budgetMicros int64, maxUses int, ttl time.Duration, note string, now time.Time) (string, error) {
 	invitesMu.Lock()
 	defer invitesMu.Unlock()
+	unlock, err := lockInvites(dataDir)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
 	file, err := loadInvites(dataDir)
 	if err != nil {
 		return "", err
@@ -145,6 +169,11 @@ func CreateInvite(dataDir, plan string, budgetMicros int64, maxUses int, ttl tim
 func RedeemInvite(dataDir, code string, now time.Time) (Invite, error) {
 	invitesMu.Lock()
 	defer invitesMu.Unlock()
+	unlock, err := lockInvites(dataDir)
+	if err != nil {
+		return Invite{}, err
+	}
+	defer unlock()
 	file, err := loadInvites(dataDir)
 	if err != nil {
 		return Invite{}, err
@@ -363,23 +392,41 @@ func (s *Server) budget(account *Account) int64 {
 
 // MARK: - Hosted requests
 
-// hostedCheck runs before a hosted account's request reaches Anthropic: the
-// month's allowance, then the model. It buffers the body (already capped at
-// maxBody) to read its model and returns it for forwarding. Writes the
-// error itself when the request can't go.
-func (s *Server) hostedCheck(w http.ResponseWriter, r *http.Request, account *Account) ([]byte, string, bool) {
+// hostedRequest is what the checks learned about a hosted request.
+type hostedRequest struct {
+	body  []byte
+	model string
+	// The reply's longest possible length, from the request.
+	maxTokens int64
+	// A rough prompt size from the body, for when no usage comes back.
+	inputEstimate int64
+	// Estimated cost held against the allowance while the request runs.
+	reserved int64
+}
+
+// Requests that leave out max_tokens are refused by Anthropic; this only
+// sizes the reservation.
+const defaultMaxTokens = 4096
+
+// hostedCheck runs before a hosted account's request reaches Anthropic:
+// no beta features or server tools (they bill outside the token counts),
+// an allowed model, and room in the month's allowance, where it holds the
+// request's largest possible cost until the request is recorded. It
+// buffers the body (already capped at maxBody) to read it and returns it
+// for forwarding. Writes the error itself when the request can't go.
+func (s *Server) hostedCheck(w http.ResponseWriter, r *http.Request, account *Account) (*hostedRequest, bool) {
 	if s.hosted == nil {
 		writeError(w, http.StatusForbidden, "permission_error", "Hosted accounts are turned off on this Saaa server.")
-		return nil, "", false
+		return nil, false
+	}
+	if r.Header.Get("Anthropic-Beta") != "" {
+		writeError(w, http.StatusForbidden, "permission_error", "Hosted accounts can't use beta features.")
+		return nil, false
 	}
 	now := s.now()
-	if spent := s.meter.Month(account.ID, now).CostMicros; spent >= s.budget(account) {
-		writeError(w, http.StatusPaymentRequired, "quota_exceeded",
-			fmt.Sprintf("You've used this month's hosted allowance. It resets on %s.", periodEnd(now).Format("January 2")))
-		return nil, "", false
-	}
+	budget := s.budget(account)
 	if r.Method != http.MethodPost {
-		return nil, "", true
+		return &hostedRequest{}, true
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.maxBody))
 	if err != nil {
@@ -389,16 +436,48 @@ func (s *Server) hostedCheck(w http.ResponseWriter, r *http.Request, account *Ac
 		} else {
 			writeError(w, http.StatusBadRequest, "invalid_request_error", "Bad request.")
 		}
-		return nil, "", false
+		return nil, false
 	}
 	var head struct {
-		Model string `json:"model"`
+		Model     string `json:"model"`
+		MaxTokens int64  `json:"max_tokens"`
+		Tools     []struct {
+			Type string `json:"type"`
+		} `json:"tools"`
 	}
-	json.NewDecoder(bytes.NewReader(body)).Decode(&head)
+	if err := json.Unmarshal(body, &head); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "The request body isn't valid JSON.")
+		return nil, false
+	}
 	if !slices.Contains(s.hosted.Models, head.Model) {
 		writeError(w, http.StatusForbidden, "permission_error",
 			fmt.Sprintf("Hosted accounts can use %s. Pick one of those in Settings.", strings.Join(s.hosted.Models, " or ")))
-		return nil, "", false
+		return nil, false
 	}
-	return body, head.Model, true
+	for _, tool := range head.Tools {
+		if tool.Type != "" && tool.Type != "custom" {
+			writeError(w, http.StatusForbidden, "permission_error", "Hosted accounts can't use Anthropic's server tools.")
+			return nil, false
+		}
+	}
+	request := &hostedRequest{body: body, model: head.Model, maxTokens: head.MaxTokens, inputEstimate: int64(len(body)) / 4}
+	if request.maxTokens <= 0 {
+		request.maxTokens = defaultMaxTokens
+	}
+	if r.URL.Path != "/v1/messages" {
+		return request, true // counting tokens is free
+	}
+	estimate := costMicros(head.Model, Usage{InputTokens: request.inputEstimate, OutputTokens: request.maxTokens})
+	if !s.meter.Reserve(account.ID, now, estimate, budget) {
+		if s.meter.Month(account.ID, now).CostMicros >= budget {
+			writeError(w, http.StatusPaymentRequired, "quota_exceeded",
+				fmt.Sprintf("You've used this month's hosted allowance. It resets on %s.", periodEnd(now).Format("January 2")))
+		} else {
+			w.Header().Set("Retry-After", strconv.Itoa(2))
+			writeError(w, http.StatusTooManyRequests, "rate_limit_error", "Your hosted allowance is busy with other requests. Try again in a moment.")
+		}
+		return nil, false
+	}
+	request.reserved = estimate
+	return request, true
 }

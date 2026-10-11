@@ -47,16 +47,18 @@ type meterFile struct {
 }
 
 // Meter keeps per-account monthly totals in memory and in data/usage.json
-// (mode 0600, written atomically when it changed).
+// (mode 0600, written atomically when it changed), plus the estimates held
+// for hosted requests still running (memory only).
 type Meter struct {
-	mu    sync.Mutex
-	path  string
-	usage map[string]map[string]*Usage
-	dirty bool
+	mu       sync.Mutex
+	path     string
+	usage    map[string]map[string]*Usage
+	reserved map[string]int64
+	dirty    bool
 }
 
 func OpenMeter(dataDir string) (*Meter, error) {
-	m := &Meter{path: filepath.Join(dataDir, "usage.json"), usage: map[string]map[string]*Usage{}}
+	m := &Meter{path: filepath.Join(dataDir, "usage.json"), usage: map[string]map[string]*Usage{}, reserved: map[string]int64{}}
 	raw, err := os.ReadFile(m.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return m, nil
@@ -105,6 +107,37 @@ func (m *Meter) Month(accountID string, at time.Time) Usage {
 	return Usage{}
 }
 
+// Reserve holds a request's largest likely cost against the month's
+// allowance while it runs, so requests sent side by side can't overrun it
+// together. A request starts when its estimate fits beside what's spent
+// and held, or, so the last of the allowance stays usable, when nothing
+// else is running and the allowance isn't used up. Either way the month
+// can run over by at most about one request.
+func (m *Meter) Reserve(accountID string, at time.Time, estimate, budget int64) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var spent int64
+	if total, ok := m.usage[accountID][period(at)]; ok {
+		spent = total.CostMicros
+	}
+	held := m.reserved[accountID]
+	if spent >= budget || (held > 0 && spent+held+estimate > budget) {
+		return false
+	}
+	m.reserved[accountID] = held + estimate
+	return true
+}
+
+// Release lets go of a reservation once its request has been recorded.
+func (m *Meter) Release(accountID string, estimate int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reserved[accountID] -= estimate
+	if m.reserved[accountID] <= 0 {
+		delete(m.reserved, accountID)
+	}
+}
+
 func (m *Meter) Forget(accountID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -145,6 +178,13 @@ type usageScanner struct {
 	usage   Usage
 	sawAny  bool
 	skipped bool // the current line outgrew maxLine and is being skipped
+	// The final usage arrived: message_delta for a stream, the whole body
+	// for JSON. Without it a reply was cut short.
+	complete bool
+	// Cache writes come as a flat total and, on newer replies, a 5m/1h
+	// breakdown of the same tokens; the breakdown wins when present.
+	flatCacheWrite int64
+	sawBreakdown   bool
 }
 
 const (
@@ -219,11 +259,11 @@ func (s *usageScanner) merge(w *wireUsage) {
 	maxInto(&s.usage.InputTokens, w.InputTokens)
 	maxInto(&s.usage.OutputTokens, w.OutputTokens)
 	maxInto(&s.usage.CacheReadTokens, w.CacheReadInputTokens)
+	maxInto(&s.flatCacheWrite, w.CacheCreationInputTokens)
 	if w.CacheCreation != nil && (w.CacheCreation.Ephemeral5m != nil || w.CacheCreation.Ephemeral1h != nil) {
+		s.sawBreakdown = true
 		maxInto(&s.usage.CacheWrite5mTokens, w.CacheCreation.Ephemeral5m)
 		maxInto(&s.usage.CacheWrite1hTokens, w.CacheCreation.Ephemeral1h)
-	} else {
-		maxInto(&s.usage.CacheWrite5mTokens, w.CacheCreationInputTokens)
 	}
 }
 
@@ -252,6 +292,7 @@ func (s *usageScanner) handleLine(line []byte) {
 				Usage *wireUsage `json:"usage"`
 			}
 			if json.Unmarshal(data, &payload) == nil {
+				s.complete = true
 				s.merge(payload.Usage)
 			}
 		}
@@ -260,31 +301,34 @@ func (s *usageScanner) handleLine(line []byte) {
 	}
 }
 
-// Result is the request's usage, priced, once the reply has ended. The
-// model named in the request stands in when the reply didn't say.
-func (s *usageScanner) Result(requestModel string) (string, Usage, bool) {
+// Result is the request's token counts (not yet priced) once the reply has
+// ended, and whether its final usage arrived. The model named in the
+// request stands in when the reply didn't say.
+func (s *usageScanner) Result(requestModel string) (model string, usage Usage, complete bool) {
 	if !s.stream && !s.skipped && len(s.body) > 0 {
 		var payload struct {
 			Model string     `json:"model"`
 			Usage *wireUsage `json:"usage"`
 		}
-		if json.Unmarshal(s.body, &payload) == nil {
+		if json.Unmarshal(s.body, &payload) == nil && payload.Usage != nil {
 			if payload.Model != "" {
 				s.model = payload.Model
 			}
 			s.merge(payload.Usage)
+			s.complete = true
 		}
 		s.body = nil
 	}
-	if !s.sawAny {
-		return "", Usage{}, false
-	}
-	model := s.model
+	model = s.model
 	if model == "" {
 		model = requestModel
 	}
-	usage := s.usage
-	usage.Requests = 1
-	usage.CostMicros = costMicros(model, usage)
-	return model, usage, true
+	usage = s.usage
+	if !s.sawBreakdown {
+		usage.CacheWrite5mTokens = s.flatCacheWrite
+	}
+	return model, usage, s.complete
 }
+
+// seen reports whether any usage came back at all.
+func (s *usageScanner) seen() bool { return s.sawAny }

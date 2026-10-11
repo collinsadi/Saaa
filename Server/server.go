@@ -286,14 +286,19 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		apiKey       string
 		buffered     []byte
 		requestModel string
+		hosted       *hostedRequest
 	)
 	if account.Hosted() {
-		// The allowance and the model are checked before anything is sent.
-		body, model, ok := s.hostedCheck(w, r, account)
+		// The allowance, the model and the tools are checked before anything is sent.
+		request, ok := s.hostedCheck(w, r, account)
 		if !ok {
 			return
 		}
-		apiKey, buffered, requestModel = s.hosted.APIKey, body, model
+		if request.reserved > 0 {
+			defer s.meter.Release(account.ID, request.reserved)
+		}
+		hosted = request
+		apiKey, buffered, requestModel = s.hosted.APIKey, request.body, request.model
 	} else {
 		key, err := s.keys.Open(account.SealedKey, account.ID)
 		if err != nil {
@@ -366,15 +371,28 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Token counts are read from the reply as it passes, after each chunk
-	// has gone out, so metering never delays a byte.
+	// Token counts are read from the reply as it passes; the scanner only
+	// looks for line breaks until a usage line comes by, so metering adds
+	// nothing a person could notice.
 	var scanner *usageScanner
 	if s.meter != nil && r.URL.Path == "/v1/messages" && resp.StatusCode == http.StatusOK {
 		scanner = newUsageScanner(resp.Header.Get("Content-Type"))
+		// Registered after the reservation's release, so it runs first.
 		defer func() {
-			if _, usage, ok := scanner.Result(requestModel); ok {
-				s.meter.Record(account.ID, s.now(), usage)
+			model, usage, complete := scanner.Result(requestModel)
+			if hosted != nil && !complete {
+				// Cut short before the final count (the device hung up): a
+				// hosted reply counts at its full length.
+				usage.OutputTokens = max(usage.OutputTokens, hosted.maxTokens)
+				if usage.InputTokens+usage.CacheReadTokens+usage.CacheWrite5mTokens+usage.CacheWrite1hTokens == 0 {
+					usage.InputTokens = hosted.inputEstimate
+				}
+			} else if !scanner.seen() {
+				return
 			}
+			usage.Requests = 1
+			usage.CostMicros = costMicros(model, usage)
+			s.meter.Record(account.ID, s.now(), usage)
 		}()
 	}
 
@@ -386,14 +404,16 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			// Counted before it's sent, so a chunk the device never takes
+			// still counts.
+			if scanner != nil {
+				scanner.Write(buf[:n])
+			}
 			if _, err := w.Write(buf[:n]); err != nil {
 				return
 			}
 			if err := controller.Flush(); err != nil {
 				return
-			}
-			if scanner != nil {
-				scanner.Write(buf[:n])
 			}
 		}
 		if readErr != nil {

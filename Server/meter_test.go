@@ -25,12 +25,11 @@ func TestScannerReadsUsageHoweverTheStreamIsSplit(t *testing.T) {
 			end := min(start+size, len(sampleStream))
 			scanner.Write([]byte(sampleStream[start:end]))
 		}
-		model, usage, ok := scanner.Result("")
-		if !ok || model != "claude-haiku-5-5" {
-			t.Fatalf("chunk %d: ok %v model %q", size, ok, model)
+		model, usage, complete := scanner.Result("")
+		if !complete || !scanner.seen() || model != "claude-haiku-5-5" {
+			t.Fatalf("chunk %d: complete %v model %q", size, complete, model)
 		}
-		want := Usage{Requests: 1, InputTokens: 1200, OutputTokens: 42, CacheReadTokens: 3000, CacheWrite5mTokens: 200, CacheWrite1hTokens: 300}
-		want.CostMicros = costMicros("claude-haiku-5-5", want)
+		want := Usage{InputTokens: 1200, OutputTokens: 42, CacheReadTokens: 3000, CacheWrite5mTokens: 200, CacheWrite1hTokens: 300}
 		if usage != want {
 			t.Fatalf("chunk %d: %+v, want %+v", size, usage, want)
 		}
@@ -41,20 +40,21 @@ func TestScannerReadsJSONRepliesAndSkipsHugeLines(t *testing.T) {
 	scanner := newUsageScanner("application/json")
 	scanner.Write([]byte(`{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"x"}],`))
 	scanner.Write([]byte(`"usage":{"input_tokens":10,"output_tokens":5}}`))
-	model, usage, ok := scanner.Result("")
-	if !ok || model != "claude-sonnet-5-5" || usage.InputTokens != 10 || usage.OutputTokens != 5 || usage.CostMicros != 70 {
-		t.Fatalf("json: %v %q %+v", ok, model, usage)
+	model, usage, complete := scanner.Result("")
+	if !complete || model != "claude-sonnet-5-5" || usage.InputTokens != 10 || usage.OutputTokens != 5 || costMicros(model, usage) != 70 {
+		t.Fatalf("json: %v %q %+v", complete, model, usage)
 	}
 
 	stream := newUsageScanner("text/event-stream")
 	huge := "event: content_block_delta\ndata: {\"delta\":{\"text\":\"" + strings.Repeat("a", maxLine*2) + "\"}}\n\n"
 	stream.Write([]byte(huge))
 	stream.Write([]byte(sampleStream))
-	if _, usage, ok := stream.Result(""); !ok || usage.OutputTokens != 42 {
-		t.Fatalf("after a huge line: %v %+v", ok, usage)
+	if _, usage, complete := stream.Result(""); !complete || usage.OutputTokens != 42 {
+		t.Fatalf("after a huge line: %v %+v", complete, usage)
 	}
-	if empty := newUsageScanner("text/event-stream"); func() bool { _, _, ok := empty.Result(""); return ok }() {
-		t.Fatal("no usage seen should record nothing")
+	empty := newUsageScanner("text/event-stream")
+	if _, _, complete := empty.Result(""); complete || empty.seen() {
+		t.Fatal("a reply with no usage is neither complete nor seen")
 	}
 }
 

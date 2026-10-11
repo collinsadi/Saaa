@@ -29,7 +29,7 @@ Every route except `/v1/register` and `/healthz` takes `Authorization: Bearer <t
 
 Limits: 240 requests per minute per account, 20 registrations per hour per address, and 8 MB per request body. All of these can be changed.
 
-Hosted accounts are checked before anything reaches Anthropic: past the month's allowance a request gets `402` with `{"type":"error","error":{"type":"quota_exceeded",...}}`, and a model outside `SAAA_HOSTED_MODELS` gets `403`. Bring-your-own-key accounts have no allowance; their usage is only counted.
+Hosted accounts are checked before anything reaches Anthropic: past the month's allowance a request gets `402` with `{"type":"error","error":{"type":"quota_exceeded",...}}`; a model outside `SAAA_HOSTED_MODELS`, a beta header or a server tool (web search, code execution) gets `403`. While a hosted request runs, its largest likely cost (its prompt size plus `max_tokens`) is held against the allowance, so requests sent side by side can't overrun it; one that doesn't fit beside the others gets `429` and can retry in a moment. A hosted reply cut off before Anthropic's final usage arrives counts at its full `max_tokens`. Bring-your-own-key accounts have no allowance; their usage is only counted.
 
 ## Configuration
 
