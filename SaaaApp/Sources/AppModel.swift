@@ -114,6 +114,7 @@ final class AppModel {
         codeAssist = CodeAssistEngine(
             service: AnthropicClient.relay(),
             screenReader: { try await CodeAssistBridge.readScreen() },
+            imageReader: { try await CodeAssistBridge.readScreen(withImage: true) },
             environment: { CodeAssistBridge.environment() },
             isCallLive: { session.isLive },
             prewarm: { CodeAssistBridge.prewarm() })

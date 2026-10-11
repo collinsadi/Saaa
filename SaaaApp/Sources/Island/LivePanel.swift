@@ -16,6 +16,7 @@ struct LivePanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ScreenPrivacyPolicy.enabledKey) private var screenPrivacy = false
     @AppStorage(SaaaSettings.consentReminderKey) private var consentReminder = true
+    @AppStorage(LookSettings.sendImageKey) private var sendImageEnabled = false
     @State private var tab: Tab = .copilot
     @State private var askText = ""
     @State private var selectedID: UUID?
@@ -384,13 +385,23 @@ struct LivePanel: View {
                         .foregroundStyle(.secondary)
                         .disabled(streaming || exchange.response.isEmpty)
                 }
-                if copilot?.screenSnapshots[exchange.id] != nil {
+                if let snapshot = copilot?.screenSnapshots[exchange.id] {
                     Button(sentShownID == exchange.id ? "Hide what was sent" : "What was sent") {
                         sentShownID = sentShownID == exchange.id ? nil : exchange.id
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
+                    if sendImageEnabled, snapshot.image == nil, copilot?.canSendImage == true {
+                        Button("Send image") {
+                            copilot?.look(question: exchange.prompt == snapshot.sourceLabel ? nil : exchange.prompt, withImage: true)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .disabled(streaming || copilot?.isLooking == true)
+                        .help("Look again and send one picture of the window, with secret-looking lines blacked out")
+                    }
                 }
                 Spacer()
                 if streaming {

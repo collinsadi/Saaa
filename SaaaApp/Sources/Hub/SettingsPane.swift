@@ -21,6 +21,7 @@ struct SettingsPane: View {
             RecordingSection()
             PermissionsSection()
             IslandSection()
+            LookSection()
             CodeAssistSection(model: model)
             ScreenPrivacySection()
             DataSection(model: model)
@@ -427,6 +428,25 @@ private struct IslandSection: View {
 }
 
 // MARK: - Code Assist
+
+/// Send image: off by default. When on, Look answers offer Send image,
+/// which sends one picture of the window with that Look.
+private struct LookSection: View {
+    @AppStorage(LookSettings.sendImageKey) private var sendImage = false
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $sendImage) {
+                Text("Offer Send image")
+                Text("Look answers get a Send image button for when text isn't enough, like a diagram or a design. Each press sends one picture of the window.")
+            }
+        } header: {
+            Text("Look")
+        } footer: {
+            Text("Look sends text unless you press Send image. Pictures are scaled down, lines Saaa reads as secrets are blacked out first, and they stay in memory only, never saved.")
+        }
+    }
+}
 
 private struct CodeAssistSection: View {
     @Bindable var model: AppModel

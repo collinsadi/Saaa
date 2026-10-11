@@ -70,6 +70,7 @@ struct CodeAssistView: View {
     @State private var selectedID: UUID?
     @State private var sentShownID: UUID?
     @State private var copiedID: UUID?
+    @AppStorage(LookSettings.sendImageKey) private var sendImageEnabled = false
     @FocusState private var askFocused: Bool
 
     private var engine: CodeAssistEngine { model.codeAssist }
@@ -233,6 +234,14 @@ struct CodeAssistView: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(saaa.textSecondary)
+                if sendImageEnabled, hint.snapshot.image == nil, engine.canSendImage {
+                    Button("Send image") { engine.look(question: hint.question, withImage: true) }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(saaa.textSecondary)
+                        .disabled(streaming || engine.isReading)
+                        .help("Look again and send one picture of the window, with secret-looking lines blacked out")
+                }
                 Spacer()
                 if streaming {
                     Button("Stop") { engine.cancel() }
@@ -364,6 +373,14 @@ struct SentScreenText: View {
             Text(summary)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+            if let image = snapshot.image, let picture = NSImage(data: image.data) {
+                Image(nsImage: picture)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: 160, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                    .accessibilityLabel("The picture that was sent")
+            }
             Text(snapshot.text)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
@@ -382,6 +399,12 @@ struct SentScreenText: View {
             parts.append(snapshot.redactions == 1 ? "1 secret hidden" : "\(snapshot.redactions) secrets hidden")
         }
         if snapshot.truncated { parts.append("cut to fit") }
+        if let image = snapshot.image {
+            parts.append("1 picture, \(image.width)×\(image.height)")
+            if image.maskedRegions > 0 {
+                parts.append(image.maskedRegions == 1 ? "1 line blacked out" : "\(image.maskedRegions) lines blacked out")
+            }
+        }
         return parts.joined(separator: " · ")
     }
 }
