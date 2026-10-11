@@ -9,17 +9,27 @@ import (
 	"time"
 )
 
-// Account is one bring-your-own-key owner. The API key is only ever held
+// Account is one bring-your-own-key owner, or a hosted account that uses
+// the server's own Anthropic key. A user's API key is only ever held
 // sealed (AES-256-GCM); the fingerprint lets another device with the same
-// key join the account.
+// key join the account. Hosted accounts have neither.
 type Account struct {
-	ID          string    `json:"id"`
-	Fingerprint string    `json:"key_fingerprint"`
-	KeyHint     string    `json:"key_hint"`
-	SealedKey   string    `json:"key_sealed"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID   string `json:"id"`
+	Kind string `json:"kind,omitempty"` // "" (bring your own key) or "hosted"
+	Plan string `json:"plan,omitempty"`
+	// Monthly allowance in millionths of a dollar for hosted accounts; zero
+	// means the server's default for the plan.
+	BudgetMicros int64     `json:"budget_micros,omitempty"`
+	Fingerprint  string    `json:"key_fingerprint,omitempty"`
+	KeyHint      string    `json:"key_hint"`
+	SealedKey    string    `json:"key_sealed,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+const kindHosted = "hosted"
+
+func (a *Account) Hosted() bool { return a.Kind == kindHosted }
 
 // Token is one device's access. Only its SHA-256 hash is stored.
 type Token struct {
@@ -76,7 +86,9 @@ func OpenStore(dataDir string) (*Store, error) {
 	}
 	for _, a := range file.Accounts {
 		s.accounts[a.ID] = a
-		s.byPrint[a.Fingerprint] = a
+		if a.Fingerprint != "" {
+			s.byPrint[a.Fingerprint] = a
+		}
 	}
 	for _, t := range file.Tokens {
 		if _, ok := s.accounts[t.AccountID]; ok {
@@ -117,6 +129,48 @@ func (s *Store) Register(keys *Keys, apiKey, label string, now time.Time) (*Acco
 	}
 	snapshot := *account
 	return &snapshot, token, existed, nil
+}
+
+// CreateHosted opens a hosted account, which uses the server's key, and
+// issues a token for this device.
+func (s *Store) CreateHosted(plan string, budgetMicros int64, label string, now time.Time) (*Account, string, error) {
+	token, hash, err := NewToken()
+	if err != nil {
+		return nil, "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account := &Account{
+		ID: NewID("acct"), Kind: kindHosted, Plan: plan, BudgetMicros: budgetMicros,
+		KeyHint: "Hosted by Saaa", CreatedAt: now, UpdatedAt: now,
+	}
+	s.accounts[account.ID] = account
+	s.tokens[hash] = &Token{Hash: hash, AccountID: account.ID, Label: label, CreatedAt: now, LastUsedAt: now}
+	if err := s.saveLocked(); err != nil {
+		return nil, "", err
+	}
+	snapshot := *account
+	return &snapshot, token, nil
+}
+
+// IssueToken adds a device to an existing account.
+func (s *Store) IssueToken(accountID, label string, now time.Time) (*Account, string, error) {
+	token, hash, err := NewToken()
+	if err != nil {
+		return nil, "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	account, ok := s.accounts[accountID]
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	s.tokens[hash] = &Token{Hash: hash, AccountID: accountID, Label: label, CreatedAt: now, LastUsedAt: now}
+	if err := s.saveLocked(); err != nil {
+		return nil, "", err
+	}
+	snapshot := *account
+	return &snapshot, token, nil
 }
 
 // Authenticate resolves a bearer token to its account and records use.
@@ -178,7 +232,9 @@ func (s *Store) DeleteAccount(accountID string) error {
 		return ErrNotFound
 	}
 	delete(s.accounts, accountID)
-	delete(s.byPrint, account.Fingerprint)
+	if account.Fingerprint != "" {
+		delete(s.byPrint, account.Fingerprint)
+	}
 	for hash, t := range s.tokens {
 		if t.AccountID == accountID {
 			delete(s.tokens, hash)

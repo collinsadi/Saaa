@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -34,6 +35,13 @@ type Server struct {
 	log              *slog.Logger
 	version          string
 	now              func() time.Time
+	// Monthly counts per account: numbers only, never content.
+	meter *Meter
+	// Hosted accounts and their invites; nil when the server is
+	// bring-your-own-key only.
+	hosted  *HostedConfig
+	dataDir string
+	links   linkCodes
 }
 
 const anthropicVersion = "2023-06-01"
@@ -67,6 +75,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PUT /v1/account/key", s.replaceKey)
 	mux.HandleFunc("DELETE /v1/account", s.deleteAccount)
 	mux.HandleFunc("DELETE /v1/token", s.revokeToken)
+	mux.HandleFunc("GET /v1/usage", s.usage)
+	mux.HandleFunc("POST /v1/hosted/join", s.joinHosted)
+	mux.HandleFunc("POST /v1/account/link", s.link)
 	mux.HandleFunc("POST /v1/messages", s.proxy)
 	mux.HandleFunc("POST /v1/messages/count_tokens", s.proxy)
 	mux.HandleFunc("GET /v1/models", s.proxy)
@@ -94,6 +105,8 @@ type registerRequest struct {
 
 type accountView struct {
 	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Plan      string    `json:"plan,omitempty"`
 	KeyHint   string    `json:"key_hint"`
 	Devices   int       `json:"devices"`
 	CreatedAt time.Time `json:"created_at"`
@@ -101,7 +114,14 @@ type accountView struct {
 }
 
 func (s *Server) view(a *Account) accountView {
-	return accountView{ID: a.ID, KeyHint: a.KeyHint, Devices: s.store.Devices(a.ID), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt}
+	kind := "byok"
+	if a.Hosted() {
+		kind = kindHosted
+	}
+	return accountView{
+		ID: a.ID, Kind: kind, Plan: a.Plan, KeyHint: a.KeyHint, Devices: s.store.Devices(a.ID),
+		CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
+	}
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +176,10 @@ func (s *Server) replaceKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if account.Hosted() {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "This account uses Saaa's hosted key. To use your own key, sign out and connect it instead.")
+		return
+	}
 	var body registerRequest
 	if !decodeJSON(w, r, &body) {
 		return
@@ -187,6 +211,9 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteAccount(account.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "api_error", "The server couldn't delete the account. Try again.")
 		return
+	}
+	if s.meter != nil {
+		s.meter.Forget(account.ID)
 	}
 	s.log.Info("account deleted", "account", short(account.ID))
 	w.WriteHeader(http.StatusNoContent)
@@ -255,18 +282,36 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		rateLimited(w, wait)
 		return
 	}
-	apiKey, err := s.keys.Open(account.SealedKey, account.ID)
-	if err != nil {
-		s.log.Error("sealed key unreadable", "account", short(account.ID))
-		writeError(w, http.StatusInternalServerError, "api_error", "The server couldn't unlock your key. Connect again in Settings.")
-		return
+	var (
+		apiKey       string
+		buffered     []byte
+		requestModel string
+	)
+	if account.Hosted() {
+		// The allowance and the model are checked before anything is sent.
+		body, model, ok := s.hostedCheck(w, r, account)
+		if !ok {
+			return
+		}
+		apiKey, buffered, requestModel = s.hosted.APIKey, body, model
+	} else {
+		key, err := s.keys.Open(account.SealedKey, account.ID)
+		if err != nil {
+			s.log.Error("sealed key unreadable", "account", short(account.ID))
+			writeError(w, http.StatusInternalServerError, "api_error", "The server couldn't unlock your key. Connect again in Settings.")
+			return
+		}
+		apiKey = key
 	}
 
 	target := *s.upstream
 	target.Path = r.URL.Path
 	target.RawQuery = r.URL.RawQuery
 	var body io.Reader = http.NoBody
-	if r.Method == http.MethodPost {
+	switch {
+	case buffered != nil:
+		body = bytes.NewReader(buffered)
+	case r.Method == http.MethodPost:
 		body = http.MaxBytesReader(w, r.Body, s.maxBody)
 	}
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), body)
@@ -274,7 +319,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "Bad request.")
 		return
 	}
-	if r.Method == http.MethodPost && r.ContentLength >= 0 {
+	switch {
+	case buffered != nil:
+		req.ContentLength = int64(len(buffered))
+	case r.Method == http.MethodPost && r.ContentLength >= 0:
 		req.ContentLength = r.ContentLength
 	}
 	for _, name := range []string{"Content-Type", "Accept", "Anthropic-Version", "Anthropic-Beta"} {
@@ -318,6 +366,18 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
+	// Token counts are read from the reply as it passes, after each chunk
+	// has gone out, so metering never delays a byte.
+	var scanner *usageScanner
+	if s.meter != nil && r.URL.Path == "/v1/messages" && resp.StatusCode == http.StatusOK {
+		scanner = newUsageScanner(resp.Header.Get("Content-Type"))
+		defer func() {
+			if _, usage, ok := scanner.Result(requestModel); ok {
+				s.meter.Record(account.ID, s.now(), usage)
+			}
+		}()
+	}
+
 	// Every chunk goes out the moment it arrives: first-token time is the product.
 	controller := http.NewResponseController(w)
 	bufPtr := bufferPool.Get().(*[]byte)
@@ -331,6 +391,9 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := controller.Flush(); err != nil {
 				return
+			}
+			if scanner != nil {
+				scanner.Write(buf[:n])
 			}
 		}
 		if readErr != nil {

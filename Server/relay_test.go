@@ -20,6 +20,7 @@ import (
 
 const goodKey = "sk-ant-api03-good-key-0123456789abcdefghijklmnopqrstuvwxyz"
 const otherKey = "sk-ant-api03-other-key-0123456789abcdefghijklmnopqrstuvwx"
+const hostedKey = "sk-ant-api03-hosted-key-0123456789abcdefghijklmnopqrstuv"
 
 // fakeAnthropic accepts goodKey and otherKey; /v1/messages streams three
 // SSE events and holds the last one until release is closed.
@@ -38,7 +39,7 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 		f.calls.Add(1)
 		key := r.Header.Get("X-Api-Key")
 		f.lastKey.Store(key)
-		if key != goodKey && key != otherKey {
+		if key != goodKey && key != otherKey && key != hostedKey {
 			w.WriteHeader(http.StatusUnauthorized)
 			io.WriteString(w, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`)
 			return
@@ -61,11 +62,12 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 			w.Header().Set("Request-Id", "req_test")
 			w.Header().Set("Anthropic-Ratelimit-Requests-Remaining", "99")
 			flusher := w.(http.Flusher)
-			io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\"}\n\n")
+			io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-haiku-5-5\",\"content\":[],\"usage\":{\"input_tokens\":1000,\"cache_read_input_tokens\":20000,\"cache_creation_input_tokens\":500,\"output_tokens\":1}}}\n\n")
 			flusher.Flush()
 			io.WriteString(w, "event: content_block_delta\ndata: {\"delta\":{\"text\":\"Hi\"}}\n\n")
 			flusher.Flush()
 			<-f.release
+			io.WriteString(w, "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":200}}\n\n")
 			io.WriteString(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -102,11 +104,15 @@ func newHarness(t *testing.T, mutate ...func(*Server)) *harness {
 		t.Fatal(err)
 	}
 	upstream, _ := url.Parse(h.upstream.server.URL)
+	meter, err := OpenMeter(h.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	h.server = &Server{
 		store: store, keys: keys, upstream: upstream, client: NewUpstreamClient(),
 		maxBody: 1 << 20, perAccount: NewLimiter(600, 100), perAddress: NewLimiter(60, 20),
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), version: "test",
-		now: func() time.Time { return h.clock },
+		now: func() time.Time { return h.clock }, meter: meter, dataDir: h.dataDir,
 	}
 	for _, m := range mutate {
 		m(h.server)
