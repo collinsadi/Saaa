@@ -31,11 +31,24 @@ It works with any call app: Zoom, Meet in a browser, Teams, FaceTime, Slack hudd
 
 A playbook tells the copilot who you are on this kind of call: instructions in your own words, quick actions, words to listen for (they also tune transcription), reference material such as pricing sheets or rubrics, summary sections and whether to answer questions automatically. Nine come built in: General, Sales, Customer Success, Recruiting (interviewer side), Investor pitch, Standup, Pair programming, 1:1 and Lecture. Each also sets how Look treats code: Standard, Interviewer (evaluates the candidate's code, never drafts their words) or Pair programming (explains, finds bugs, proposes small fixes). In every lens, a coding problem gets the approach during a call, never solution code. Edit them or make your own.
 
+## Code Assist
+
+Outside calls, Saaa helps while you code. Turn on Code Assist in Settings, then press ⌥⌘L, or Look in the Code Assist panel, with your editor, a terminal or a coding problem in front:
+
+- an error gets what's wrong and the smallest fix,
+- code gets a review: the line that looks wrong and its fix, or what the code does,
+- a coding problem gets a ladder you climb one step at a time: Nudge, Approach, Pseudocode, Full solution. Learning mode starts every problem at the nudge,
+- anything typed in the panel's Ask field becomes your question about the screen.
+
+**Watch** is off until you turn it on. It reads only the editors and terminals you pick, after you pause typing, and raises a hint only for an error it hasn't seen, at most once a minute. A lightbulb in the menu bar means a hint is waiting. Watch pauses during calls.
+
+On a call, and on pages that look like a hiring assessment, an exam or a proctored test, coding problems get the approach, never solution code. Errors, code and nudges use the live model; problems use the Code Assist model (Sonnet by default). Their cost counts toward the month's total in Settings.
+
 ## Privacy and data flow
 
 - **Audio never leaves your Mac.** Your microphone and the call app's audio are captured as two separate streams and transcribed by Apple's on-device speech model.
-- **Only text goes to Claude, through your Saaa server.** You bring your own Anthropic key. It's sent once to the Saaa relay, a small server you host (see [Server](Server/README.md)), which checks it with Anthropic, encrypts it with AES-256-GCM and keeps it. This Mac stores only an access token, so nothing lives in the Keychain and there are no password prompts. When the copilot answers, writes notes, summarizes or answers Ask this call, transcript text, your playbook, your prep notes and, when you press Look, text read from your screen pass through the relay to Anthropic. The relay doesn't log or keep them. Nothing is sent while the copilot is idle.
-- **Look sends text, not pixels, and only when you ask.** Look takes one frame of the window in front, reads its text on this Mac with Apple's Vision, masks secrets such as API keys, tokens, private keys and passwords, and sends that text with the transcript. The image is never saved or sent. The text stays in memory so the panel can show exactly what was sent, and it isn't saved with the session. Look needs Screen Recording permission. When someone shares their screen, Look reads what you can see, so treat it like your notes and tell people.
+- **Only text goes to Claude, through your Saaa server.** You bring your own Anthropic key. It's sent once to the Saaa relay, a small server you host (see [Server](Server/README.md)), which checks it with Anthropic, encrypts it with AES-256-GCM and keeps it. This Mac stores only an access token, so nothing lives in the Keychain and there are no password prompts. When the copilot answers, writes notes, summarizes or answers Ask this call, transcript text, your playbook, your prep notes and, when you press Look or Watch flags an error, text read from your screen pass through the relay to Anthropic. The relay doesn't log or keep them. Nothing is sent while the copilot is idle.
+- **Look sends text, not pixels, and only when you ask or turn on Watch.** Look takes one frame of the window in front, reads its text on this Mac with Apple's Vision, masks secrets such as API keys, tokens, private keys and passwords, and sends that text with the transcript. The image is never saved or sent. The text stays in memory so the panel can show exactly what was sent, and it isn't saved with the session. Code Assist hints work the same way and stay in memory until Saaa quits. Watch reads only the apps you pick and sends text only for a new error. Look and Watch need Screen Recording permission. When someone shares their screen, Look reads what you can see, so treat it like your notes and tell people.
 - **Encrypted at rest.** Transcripts, notes, summaries and playbooks are sealed with AES-GCM on this Mac, with a key kept in Saaa's own folder that only your macOS account can read. Audio files are deleted once the transcript is saved unless you choose to keep them.
 - **No telemetry.** Logs record state changes and error codes, never call content.
 - **Consent is visible.** A recording indicator is always on screen while Saaa records, and nothing starts without you. Saaa reminds you to tell people and gives you a line to paste into the chat. Recording laws vary by place; telling people is your responsibility.
@@ -90,7 +103,7 @@ cd Packages/AnthropicKit && SAAA_LIVE_API=1 ANTHROPIC_API_KEY=... swift test --f
 | ⌥⌘R | Start or stop a session, from any app |
 | ⌥⌘A | Answer what they just asked |
 | ⌥⌘K | Open the live panel with Ask focused |
-| ⌥⌘L | Look at your screen (during a session) |
+| ⌥⌘L | Look at your screen (during a session, or any time with Code Assist on) |
 | ⌘1 to ⌘4 | Quick actions, in the live panel |
 | ⌘↩ | In the Ask field: answer the latest question |
 
@@ -104,8 +117,8 @@ One app target over ten local Swift packages, Swift 6 with strict concurrency th
 | AnthropicKit | Streaming Messages API client, structured output, model catalog and pricing, Saaa relay connection |
 | AudioCapture | Core Audio process taps and microphone capture, lock-free hot path, live 16 kHz sample stream |
 | Transcription | SpeechAnalyzer lanes per side, live transcript with echo guard, speech asset install, file transcription |
-| ScreenContext | Look: front-window capture, on-device text recognition and layout, scene detection |
-| Copilot | Cache-shaped prompt composer, copilot engine, live notes, summaries, Ask this call |
+| ScreenContext | Look and Watch: front-window capture, on-device text recognition and layout, scene detection, typing pause |
+| Copilot | Cache-shaped prompt composer, copilot engine, live notes, summaries, Ask this call, Code Assist |
 | CallSession | Session lifecycle, global hotkeys, meeting detection, imports |
 | CalendarContext | EventKit reader for current and upcoming meetings |
 | Persistence | AES-GCM sealing, session library and search, playbook store, export, migration |
