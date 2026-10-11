@@ -14,11 +14,13 @@ public enum SaaaSurface: String, CaseIterable, Sendable {
     case prep
     case onboarding
     case about
+    /// The Code Assist panel (screen text and hints).
+    case codeAssist
 
     /// Surfaces that show call content: transcripts, answers, notes.
     public var carriesCallContent: Bool {
         switch self {
-        case .livePanel, .hub, .prep: true
+        case .livePanel, .hub, .prep, .codeAssist: true
         case .island, .onboarding, .about: false
         }
     }

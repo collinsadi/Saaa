@@ -96,11 +96,13 @@ public enum ModelRole: String, Sendable, CaseIterable, Codable {
     case summary
     /// Ask this call, after the meeting.
     case chat
+    /// Code Assist on coding problems: approaches, pseudocode, solutions.
+    case code
 
     public var defaultModel: ClaudeModel {
         switch self {
         case .live, .notes: ModelCatalog.haiku
-        case .summary, .chat: ModelCatalog.sonnet
+        case .summary, .chat, .code: ModelCatalog.sonnet
         }
     }
 
@@ -112,6 +114,7 @@ public enum ModelRole: String, Sendable, CaseIterable, Codable {
         case .notes: "Live notes"
         case .summary: "Summaries"
         case .chat: "Ask this call"
+        case .code: "Code Assist"
         }
     }
 

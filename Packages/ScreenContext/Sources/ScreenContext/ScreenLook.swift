@@ -23,6 +23,17 @@ public enum ScreenLook {
         }
     }
 
+    /// The id of the window a Look would read: cheap, no capture, and no
+    /// Screen Recording needed. Watch uses it to notice a window switch.
+    public static func frontWindowID(frontmostPID: pid_t?, excludingPID: pid_t) -> UInt32? {
+        WindowCapture.frontmostTarget(preferring: frontmostPID, excluding: excludingPID)?.windowID
+    }
+
+    /// Seconds since the last key press: Watch reads only after a pause.
+    public static func secondsSinceTyping() -> Double {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+    }
+
     /// Reads the frontmost window. `frontmostPID` is the active app, read
     /// on the main actor by the caller; `excludingPID` is Saaa itself.
     public static func snapshot(frontmostPID: pid_t?, excludingPID: pid_t) async throws -> ScreenSnapshot {
